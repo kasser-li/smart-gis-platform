@@ -5,10 +5,8 @@
 
 import { logger } from '../utils/logger';
 import * as fs from 'fs';
-
-// DXF Parser (需要安装 dxf-parser 包)
-// 由于环境限制，这里使用简化的解析逻辑
-// 实际项目中请安装：npm install dxf-parser
+import * as path from 'path';
+import DxfParser from 'dxf-parser';
 
 export interface CADLayer {
   name: string;
@@ -41,6 +39,8 @@ export interface CADFile {
 }
 
 export class CADService {
+  private parser = new DxfParser();
+
   /**
    * 解析 DXF 文件
    */
@@ -50,24 +50,27 @@ export class CADService {
       
       const content = fs.readFileSync(filePath, 'utf-8');
       
-      // 简化的 DXF 解析逻辑
-      // 实际项目中请使用 dxf-parser 库
-      const layers: CADLayer[] = this.parseLayers(content);
-      const entities = this.parseEntities(content);
-      const extents = this.calculateExtents(entities);
+      // 使用专业的 dxf-parser 解析
+      const dxfData = this.parser.parseSync(content);
+      
+      logger.info(`DXF 解析成功：${dxfData.entities?.length || 0} 个实体`);
+      
+      // 转换图层和实体
+      const layers = this.convertLayers(dxfData);
+      const extents = this.calculateExtentsFromDXF(dxfData);
 
       const cadFile: CADFile = {
         filename,
-        layers: this.groupEntitiesByLayer(entities, layers),
+        layers,
         metadata: {
-          version: this.extractVersion(content),
-          units: this.extractUnits(content),
+          version: dxfData.header?.ACADVER || 'Unknown',
+          units: this.getUnits(dxfData.header?.MEASUREMENT),
           extents
         },
         uploadTime: new Date()
       };
 
-      logger.info(`DXF 解析完成：${layers.length} 个图层，${entities.length} 个实体`);
+      logger.info(`DXF 解析完成：${layers.length} 个图层，${layers.reduce((sum, l) => sum + l.entities.length, 0)} 个实体`);
       
       return cadFile;
     } catch (error: any) {
@@ -77,149 +80,190 @@ export class CADService {
   }
 
   /**
-   * 解析图层信息
+   * 转换图层数据
    */
-  private parseLayers(content: string): CADLayer[] {
-    // 简化实现，实际应解析 DXF 的 LAYER 段
-    const layers: CADLayer[] = [];
-    const layerRegex = /8\n(\w+)/g;
-    let match;
+  private convertLayers(dxfData: any): CADLayer[] {
+    const layersMap = new Map<string, CADLayer>();
     
-    const layerNames = new Set<string>();
-    while ((match = layerRegex.exec(content)) !== null) {
-      layerNames.add(match[1]);
+    // 初始化所有图层
+    if (dxfData.tables?.layers) {
+      for (const [name, layer] of Object.entries(dxfData.tables.layers)) {
+        const layerObj: any = layer as any;
+        layersMap.set(name, {
+          name,
+          color: layerObj?.color || 7,
+          visible: true,
+          entities: []
+        });
+      }
     }
-
-    layerNames.forEach(name => {
-      layers.push({
-        name,
-        color: 7, // 默认白色
+    
+    // 确保至少有一个默认图层
+    if (layersMap.size === 0) {
+      layersMap.set('0', {
+        name: '0',
+        color: 7,
         visible: true,
         entities: []
       });
-    });
-
-    return layers;
-  }
-
-  /**
-   * 解析实体
-   */
-  private parseEntities(content: string): CADEntity[] {
-    const entities: CADEntity[] = [];
+    }
     
-    // 简化实现，实际应解析 DXF 的 ENTITIES 段
-    // 这里只解析基本的 LINE 和 POINT
-    
-    const lineRegex = /LINE[\s\S]*?10\n([\d.-]+)[\s\S]*?20\n([\d.-]+)[\s\S]*?11\n([\d.-]+)[\s\S]*?21\n([\d.-]+)/g;
-    let lineMatch;
-    
-    while ((lineMatch = lineRegex.exec(content)) !== null) {
-      entities.push({
-        type: 'LINE',
-        layer: '0',
-        properties: {},
-        geometry: {
-          start: {
-            x: parseFloat(lineMatch[1]),
-            y: parseFloat(lineMatch[2])
-          },
-          end: {
-            x: parseFloat(lineMatch[3]),
-            y: parseFloat(lineMatch[4])
-          }
+    // 将实体分配到对应图层
+    if (dxfData.entities) {
+      dxfData.entities.forEach((entity: any) => {
+        const layerName = entity.layer || '0';
+        let layer = layersMap.get(layerName);
+        
+        // 如果图层不存在，创建它
+        if (!layer) {
+          layer = {
+            name: layerName,
+            color: 7,
+            visible: true,
+            entities: []
+          };
+          layersMap.set(layerName, layer);
+        }
+        
+        // 转换实体格式
+        const convertedEntity = this.convertEntity(entity);
+        if (convertedEntity) {
+          layer.entities.push(convertedEntity);
         }
       });
     }
-
-    return entities;
+    
+    return Array.from(layersMap.values());
   }
 
   /**
-   * 按图层分组实体
+   * 转换单个实体
    */
-  private groupEntitiesByLayer(entities: CADEntity[], layers: CADLayer[]): CADLayer[] {
-    entities.forEach(entity => {
-      const layer = layers.find(l => l.name === entity.layer);
-      if (layer) {
-        layer.entities.push(entity);
-      } else if (layers.length > 0) {
-        layers[0].entities.push(entity);
-      }
-    });
-    return layers;
+  private convertEntity(entity: any): CADEntity | null {
+    if (!entity.type) return null;
+    
+    const converted: CADEntity = {
+      type: entity.type,
+      layer: entity.layer || '0',
+      properties: entity,
+      geometry: {}
+    };
+    
+    // 根据类型提取几何信息
+    switch (entity.type) {
+      case 'LINE':
+        converted.geometry = {
+          start: { x: entity.vertices?.[0]?.x || 0, y: entity.vertices?.[0]?.y || 0 },
+          end: { x: entity.vertices?.[1]?.x || 0, y: entity.vertices?.[1]?.y || 0 }
+        };
+        break;
+        
+      case 'POINT':
+        converted.geometry = {
+          x: entity.vertices?.[0]?.x || 0,
+          y: entity.vertices?.[0]?.y || 0
+        };
+        break;
+        
+      case 'LWPOLYLINE':
+      case 'POLYLINE':
+        converted.geometry = {
+          vertices: entity.vertices?.map((v: any) => ({ x: v.x, y: v.y })) || []
+        };
+        break;
+        
+      case 'CIRCLE':
+        converted.geometry = {
+          center: { x: entity.center?.x || 0, y: entity.center?.y || 0 },
+          radius: entity.radius || 0
+        };
+        break;
+        
+      case 'ARC':
+        converted.geometry = {
+          center: { x: entity.center?.x || 0, y: entity.center?.y || 0 },
+          radius: entity.radius || 0,
+          startAngle: entity.startAngle || 0,
+          endAngle: entity.endAngle || 0
+        };
+        break;
+        
+      case 'TEXT':
+        converted.geometry = {
+          position: { x: entity.position?.x || 0, y: entity.position?.y || 0 },
+          text: entity.text || ''
+        };
+        break;
+        
+      default:
+        converted.geometry = entity;
+    }
+    
+    return converted;
   }
 
   /**
-   * 计算边界
+   * 从 DXF 数据计算边界
    */
-  private calculateExtents(entities: CADEntity[]): { minX: number; minY: number; maxX: number; maxY: number } {
+  private calculateExtentsFromDXF(dxfData: any): { minX: number; minY: number; maxX: number; maxY: number } {
     const extents = {
       minX: Infinity,
       minY: Infinity,
       maxX: -Infinity,
       maxY: -Infinity
     };
-
-    entities.forEach(entity => {
-      if (entity.geometry) {
-        if (entity.geometry.start) {
-          extents.minX = Math.min(extents.minX, entity.geometry.start.x);
-          extents.minY = Math.min(extents.minY, entity.geometry.start.y);
-          extents.maxX = Math.max(extents.maxX, entity.geometry.start.x);
-          extents.maxY = Math.max(extents.maxY, entity.geometry.start.y);
-        }
-        if (entity.geometry.end) {
-          extents.minX = Math.min(extents.minX, entity.geometry.end.x);
-          extents.minY = Math.min(extents.minY, entity.geometry.end.y);
-          extents.maxX = Math.max(extents.maxX, entity.geometry.end.x);
-          extents.maxY = Math.max(extents.maxY, entity.geometry.end.y);
-        }
-      }
-    });
-
+    
+    if (dxfData.entities) {
+      dxfData.entities.forEach((entity: any) => {
+        this.updateExtents(entity, extents);
+      });
+    }
+    
+    // 如果没有实体，返回默认值
     if (extents.minX === Infinity) {
       return { minX: 0, minY: 0, maxX: 0, maxY: 0 };
     }
-
+    
     return extents;
   }
 
   /**
-   * 提取版本信息
+   * 更新边界
    */
-  private extractVersion(content: string): string {
-    const versionMatch = content.match(/\$ACADVER[\s\S]*?\n(\w+)/);
-    return versionMatch ? versionMatch[1] : 'Unknown';
+  private updateExtents(entity: any, extents: any) {
+    // 处理顶点
+    if (entity.vertices) {
+      entity.vertices.forEach((v: any) => {
+        if (v.x !== undefined) extents.minX = Math.min(extents.minX, v.x);
+        if (v.y !== undefined) extents.minY = Math.min(extents.minY, v.y);
+        if (v.x !== undefined) extents.maxX = Math.max(extents.maxX, v.x);
+        if (v.y !== undefined) extents.maxY = Math.max(extents.maxY, v.y);
+      });
+    }
+    
+    // 处理圆心（圆和弧）
+    if (entity.center) {
+      const r = entity.radius || 0;
+      extents.minX = Math.min(extents.minX, entity.center.x - r);
+      extents.minY = Math.min(extents.minY, entity.center.y - r);
+      extents.maxX = Math.max(extents.maxX, entity.center.x + r);
+      extents.maxY = Math.max(extents.maxY, entity.center.y + r);
+    }
   }
 
   /**
-   * 提取单位信息
+   * 获取单位
    */
-  private extractUnits(content: string): string {
-    const unitsMatch = content.match(/\$LUNITS[\s\S]*?\n(\d+)/);
-    const unitsMap: Record<string, string> = {
-      '1': '科学',
-      '2': '小数',
-      '3': '工程',
-      '4': '建筑',
-      '5': '分数'
+  private getUnits(measurement: number): string {
+    const unitsMap: Record<number, string> = {
+      0: '英寸',
+      1: '英尺',
+      2: '英里',
+      3: '毫米',
+      4: '厘米',
+      5: '米',
+      6: '千米'
     };
-    return unitsMap[unitsMatch?.[1] || '2'] || '小数';
-  }
-
-  /**
-   * 将 CAD 坐标转换为地理坐标
-   */
-  convertToGeoCoordinates(x: number, y: number, origin: { lat: number; lng: number; scale: number }): { lat: number; lng: number } {
-    // 简化的坐标转换，实际项目需要使用正确的投影转换
-    const scale = origin.scale || 0.00001;
-    return {
-      lat: origin.lat + y * scale,
-      lng: origin.lng + x * scale
-    };
+    return unitsMap[measurement] || '毫米';
   }
 }
-
-// 导出单例
-export const cadService = new CADService();
