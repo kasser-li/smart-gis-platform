@@ -455,6 +455,38 @@ const renderCadFile = (cadData: any) => {
   
   let entityCount = 0;
   
+  // 计算 CAD 坐标范围
+  const extents = cadData.metadata?.extents;
+  if (!extents) {
+    ElMessage.warning('无法获取 CAD 坐标范围');
+    return;
+  }
+  
+  console.log(`CAD 坐标范围：(${extents.minX}, ${extents.minY}) 到 (${extents.maxX}, ${extents.maxY})`);
+  
+  // 检查坐标是否超出地球范围（经纬度）
+  const isGeoCoordinate = 
+    extents.minX >= -180 && extents.maxX <= 180 &&
+    extents.minY >= -90 && extents.maxY <= 90;
+  
+  console.log('是否为地理坐标:', isGeoCoordinate);
+  
+  // 计算 CAD 图的中心点
+  const cadCenterX = (extents.minX + extents.maxX) / 2;
+  const cadCenterY = (extents.minY + extents.maxY) / 2;
+  const cadWidth = extents.maxX - extents.minX;
+  const cadHeight = extents.maxY - extents.minY;
+  
+  // 如果不是地理坐标，需要转换到地图坐标
+  // 使用当前地图中心作为 CAD 图的中心
+  const mapCenter = map?.getCenter() || { lat: 39.9042, lng: 116.4074 };
+  
+  // 计算缩放比例（将 CAD 单位转换为地图单位）
+  // 假设 CAD 单位是米，1 度 ≈ 111km
+  const scale = isGeoCoordinate ? 1 : 0.00001; // 非地理坐标时使用小比例
+  
+  console.log(`使用比例尺：${scale}, 地图中心：`, mapCenter);
+  
   // 解析 CAD 实体并在地图上绘制
   cadData.layers.forEach((layer: any) => {
     console.log(`处理图层 ${layer.name}, 实体数：${layer.entities?.length || 0}`);
@@ -466,12 +498,30 @@ const renderCadFile = (cadData: any) => {
     layer.entities.forEach((entity: any) => {
       if (entity.type === 'LINE' && entity.geometry) {
         const { start, end } = entity.geometry;
-        // 简化的坐标转换（实际项目需要正确的投影转换）
-        const latLngs = [
-          [start.y, start.x],
-          [end.y, end.x]
-        ];
-        const polyline = L.polyline(latLngs as [number, number][], {
+        
+        let latLngs: [number, number][];
+        
+        if (isGeoCoordinate) {
+          // 已经是地理坐标，直接使用
+          latLngs = [
+            [start.y, start.x],
+            [end.y, end.x]
+          ];
+        } else {
+          // 将 CAD 坐标转换为地图坐标
+          // 以地图中心为基准，按比例缩放
+          const lat1 = mapCenter.lat + (start.y - cadCenterY) * scale;
+          const lng1 = mapCenter.lng + (start.x - cadCenterX) * scale;
+          const lat2 = mapCenter.lat + (end.y - cadCenterY) * scale;
+          const lng2 = mapCenter.lng + (end.x - cadCenterX) * scale;
+          
+          latLngs = [
+            [lat1, lng1],
+            [lat2, lng2]
+          ];
+        }
+        
+        const polyline = L.polyline(latLngs, {
           color: '#ff0000',
           weight: 2,
           opacity: 0.8
@@ -479,9 +529,21 @@ const renderCadFile = (cadData: any) => {
         polyline.bindPopup(`图层：${layer.name}<br>类型：${entity.type}`);
         cadLayerGroup.addLayer(polyline);
         entityCount++;
+        
       } else if (entity.type === 'POINT' && entity.geometry) {
         const { x, y } = entity.geometry;
-        const circle = L.circleMarker([y, x], {
+        
+        let lat: number, lng: number;
+        
+        if (isGeoCoordinate) {
+          lat = y;
+          lng = x;
+        } else {
+          lat = mapCenter.lat + (y - cadCenterY) * scale;
+          lng = mapCenter.lng + (x - cadCenterX) * scale;
+        }
+        
+        const circle = L.circleMarker([lat, lng], {
           radius: 5,
           fillColor: '#00ff00',
           color: '#333',
@@ -498,15 +560,11 @@ const renderCadFile = (cadData: any) => {
   console.log(`CAD 渲染完成，共绘制 ${entityCount} 个实体`);
   ElMessage.success(`CAD 解析成功，绘制了 ${entityCount} 个实体`);
   
-  // 如果有 CAD 数据，调整地图视图以适应
-  if (cadData.metadata?.extents) {
-    const { minX, minY, maxX, maxY } = cadData.metadata.extents;
-    if (minX !== 0 || maxX !== 0 || minY !== 0 || maxY !== 0) {
-      const bounds = [
-        [minY, minX],
-        [maxY, maxX]
-      ] as [number, number][];
-      map?.fitBounds(bounds);
+  // 调整地图视图以适应 CAD 图形
+  if (entityCount > 0) {
+    const bounds = cadLayerGroup.getBounds();
+    if (bounds.isValid()) {
+      map?.fitBounds(bounds, { padding: [50, 50] });
       ElMessage.success('地图视图已调整到 CAD 范围');
     }
   }
