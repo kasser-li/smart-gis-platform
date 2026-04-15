@@ -34,7 +34,6 @@ uploads/
 Thumbs.db
 
 # OpenSpec 临时文件
-.openspec/changes/active/
 .openspec/cache/
 
 # 测试
