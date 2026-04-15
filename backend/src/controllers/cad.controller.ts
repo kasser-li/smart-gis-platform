@@ -171,6 +171,8 @@ export const uploadChunk = async (req: Request, res: Response) => {
 
     const { chunkId, chunkIndex, totalChunks, filename } = req.body;
     
+    logger.info(`分片上传成功：${chunkId}, 分片 ${chunkIndex}/${totalChunks}`);
+    
     res.json({
       code: 200,
       message: '分片上传成功',
@@ -196,26 +198,34 @@ export const uploadChunk = async (req: Request, res: Response) => {
 export const mergeChunks = async (req: Request, res: Response) => {
   try {
     const { chunkId, filename, totalChunks } = req.body;
-    const chunksDir = path.join('uploads/cad/chunks', chunkId);
-    const outputFile = path.join('uploads/cad', filename);
+    
+    // 使用绝对路径
+    const baseDir = path.join(__dirname, '../../uploads/cad');
+    const chunksDir = path.join(baseDir, 'chunks', chunkId);
+    const outputFile = path.join(baseDir, filename);
 
+    logger.info(`开始合并分片：${chunkId}, 文件：${filename}, 分片数：${totalChunks}`);
+    logger.info(`分片目录：${chunksDir}`);
+    
     // 检查分片目录是否存在
     if (!fs.existsSync(chunksDir)) {
+      logger.error(`分片目录不存在：${chunksDir}`);
       res.status(400).json({
         code: 400,
-        message: '分片目录不存在'
+        message: '分片目录不存在，可能已被清理'
       });
       return;
     }
 
     // 读取所有分片并按顺序合并
     const chunks: string[] = [];
-    for (let i = 0; i < totalChunks; i++) {
+    for (let i = 0; i < Number(totalChunks); i++) {
       const chunkFiles = fs.readdirSync(chunksDir)
         .filter(f => f.startsWith(`chunk-${i}-`))
         .sort();
       
       if (chunkFiles.length === 0) {
+        logger.error(`缺少分片 ${i}`);
         res.status(400).json({
           code: 400,
           message: `缺少分片 ${i}`
@@ -224,8 +234,16 @@ export const mergeChunks = async (req: Request, res: Response) => {
       }
       
       chunks.push(path.join(chunksDir, chunkFiles[0]));
+      logger.info(`找到分片 ${i}: ${chunkFiles[0]}`);
     }
 
+    logger.info(`开始合并 ${chunks.length} 个分片到 ${outputFile}`);
+    
+    // 确保输出目录存在
+    if (!fs.existsSync(baseDir)) {
+      fs.mkdirSync(baseDir, { recursive: true });
+    }
+    
     // 合并分片
     const writeStream = fs.createWriteStream(outputFile);
     for (const chunkFile of chunks) {
@@ -237,14 +255,22 @@ export const mergeChunks = async (req: Request, res: Response) => {
     // 等待写入完成
     await new Promise((resolve, reject) => {
       writeStream.on('finish', resolve);
-      writeStream.on('error', reject);
+      writeStream.on('error', (err) => {
+        logger.error('写入文件失败:', err);
+        reject(err);
+      });
     });
+
+    logger.info(`分片合并完成：${outputFile}`);
 
     // 删除分片目录
     fs.rmSync(chunksDir, { recursive: true });
+    logger.info(`已清理分片目录：${chunksDir}`);
 
     // 解析合并后的文件
+    logger.info(`开始解析 CAD 文件：${filename}`);
     const cadFile = await cadService.parseDXF(outputFile, filename);
+    logger.info(`CAD 解析成功：${filename}`);
 
     res.json({
       code: 200,
