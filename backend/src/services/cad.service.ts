@@ -267,3 +267,6 @@ export class CADService {
     return unitsMap[measurement] || '毫米';
   }
 }
+
+// 导出单例
+export const cadService = new CADService();
