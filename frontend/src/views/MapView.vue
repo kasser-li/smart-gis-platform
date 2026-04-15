@@ -386,18 +386,19 @@ const uploadFileInChunks = async (file: File) => {
       
       const formData = new FormData();
       formData.append('file', chunk);
-      formData.append('chunkId', chunkId);
-      formData.append('chunkIndex', String(index));  // 确保是字符串
-      formData.append('totalChunks', String(totalChunks));  // 确保是字符串
-      formData.append('filename', file.name);
       
       console.log(`上传分片 ${index + 1}/${totalChunks}...`);
       
-      const response = await axios.post('/api/cad/upload-chunk', formData, {
-        headers: {
-          'Content-Type': 'multipart/form-data'
+      // 使用 query 参数传递元数据，因为 multer 处理时 body 还没解析
+      const response = await axios.post(
+        `/api/cad/upload-chunk?chunkId=${encodeURIComponent(chunkId)}&chunkIndex=${index}&totalChunks=${totalChunks}&filename=${encodeURIComponent(file.name)}`,
+        formData,
+        {
+          headers: {
+            'Content-Type': 'multipart/form-data'
+          }
         }
-      });
+      );
       
       console.log(`分片 ${index + 1}/${totalChunks} 响应:`, response.data);
       ElMessage.info(`分片 ${index + 1}/${totalChunks} 上传成功`);

@@ -40,14 +40,17 @@ const upload = multer({
 // 分片上传配置
 const chunkStorage = multer.diskStorage({
   destination: (req, file, cb) => {
-    const chunkDir = path.join('uploads/cad/chunks', req.body.chunkId || 'default');
+    // 使用 query 参数而不是 body，因为 multer 处理时 body 还没解析
+    const chunkId = req.query.chunkId as string || req.body.chunkId || 'default';
+    const chunkDir = path.join(__dirname, '../../uploads/cad/chunks', chunkId);
     if (!fs.existsSync(chunkDir)) {
       fs.mkdirSync(chunkDir, { recursive: true });
     }
     cb(null, chunkDir);
   },
   filename: (req, file, cb) => {
-    cb(null, `chunk-${req.body.chunkIndex}-${Date.now()}`);
+    const chunkIndex = req.query.chunkIndex as string || req.body.chunkIndex || '0';
+    cb(null, `chunk-${chunkIndex}-${Date.now()}`);
   }
 });
 
