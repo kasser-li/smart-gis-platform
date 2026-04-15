@@ -4,6 +4,7 @@
 
 import { Request, Response } from 'express';
 import { cadService } from '../services/cad.service';
+import { cadFilterService } from '../services/cad-filter.service';
 import { logger } from '../utils/logger';
 import * as fs from 'fs';
 import * as path from 'path';
@@ -198,13 +199,13 @@ export const uploadChunk = async (req: Request, res: Response) => {
  */
 export const mergeChunks = async (req: Request, res: Response) => {
   try {
+    const { chunkId, filename, totalChunks, renderOptions } = req.body;
+    
     // 调试日志
     logger.info('=== 调试信息 ===');
     logger.info(`cadService: ${cadService ? '已定义' : 'undefined'}`);
     logger.info(`cadService.parseDXF: ${cadService?.parseDXF ? '已定义' : 'undefined'}`);
     logger.info('================');
-    
-    const { chunkId, filename, totalChunks } = req.body;
     
     // 使用绝对路径
     const baseDir = path.join(__dirname, '../../uploads/cad');
@@ -278,20 +279,61 @@ export const mergeChunks = async (req: Request, res: Response) => {
     logger.info(`开始解析 CAD 文件：${filename}`);
     const cadFile = await cadService.parseDXF(outputFile, filename);
     logger.info(`CAD 解析成功：${filename}`);
+    
+    // 应用 LOD 过滤（如果提供了 renderOptions）
+    let resultLayers = cadFile.layers;
+    let originalCount = cadFile.layers.reduce((sum, l) => sum + l.entities.length, 0);
+    let returnedCount = originalCount;
+    
+    if (renderOptions) {
+      const { zoom, bounds } = renderOptions;
+      logger.info(`应用 LOD 过滤：zoom=${zoom}`);
+      
+      // 创建转换上下文
+      const extents = cadFile.metadata.extents;
+      const context = {
+        mapCenter: bounds ? {
+          lat: (bounds.north + bounds.south) / 2,
+          lng: (bounds.east + bounds.west) / 2
+        } : { lat: 39.9042, lng: 116.4074 },
+        cadCenterX: (extents.minX + extents.maxX) / 2,
+        cadCenterY: (extents.minY + extents.maxY) / 2,
+        scale: 0.00001
+      };
+      
+      // 应用过滤
+      const filterResult = cadFilterService.applyFilters(
+        cadFile.layers,
+        zoom,
+        bounds,
+        context
+      );
+      
+      resultLayers = filterResult.layers;
+      returnedCount = filterResult.returned;
+      
+      logger.info(`LOD 过滤完成：原始=${originalCount}, 返回=${returnedCount}`);
+    }
 
     res.json({
       code: 200,
       message: '分片合并成功',
       data: {
         filename,
-        layers: cadFile.layers.map((l: any) => ({
+        layers: resultLayers.map((l: any) => ({
           name: l.name,
           color: l.color,
           visible: l.visible,
           entityCount: l.entities.length,
           entities: l.entities  // 返回完整的 entities 数组
         })),
-        metadata: cadFile.metadata,
+        metadata: {
+          ...cadFile.metadata,
+          totalEntities: originalCount,
+          returnedEntities: returnedCount,
+          simplified: renderOptions ? renderOptions.zoom < 16 : false,
+          zoomLevel: renderOptions?.zoom
+        },
         uploadTime: cadFile.uploadTime
       }
     });
