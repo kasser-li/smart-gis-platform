@@ -5,6 +5,7 @@
 
 import { CADEntity, CADLayer } from '../models/cad.model';
 import { getLODConfig } from '../config/lod.config';
+import { simplifyEntities } from '../utils/douglas-peucker';
 
 export interface Viewport {
   north: number;
@@ -232,7 +233,7 @@ export class CADFilterService {
     zoom: number,
     viewport: Viewport | null,
     context: TransformContext
-  ): { layers: CADLayer[]; total: number; returned: number } {
+  ): { layers: CADLayer[]; total: number; returned: number; simplified: boolean } {
     const originalCount = layers.reduce((sum, l) => sum + l.entities.length, 0);
     
     // 1. LOD 过滤
@@ -243,6 +244,19 @@ export class CADFilterService {
       filtered = this.clipToViewport(filtered, viewport, context);
     }
     
+    // 3. 数据简化
+    const config = getLODConfig(zoom);
+    let simplified = false;
+    
+    if (config.tolerance > 0) {
+      console.log(`应用数据简化：tolerance=${config.tolerance}`);
+      filtered = filtered.map(layer => ({
+        ...layer,
+        entities: simplifyEntities(layer.entities, config.tolerance)
+      }));
+      simplified = true;
+    }
+    
     const returnedCount = filtered.reduce((sum, l) => sum + l.entities.length, 0);
     
     console.log(`过滤完成：原始=${originalCount}, 返回=${returnedCount}, 过滤率=${(1 - returnedCount/originalCount)*100}%`);
@@ -250,7 +264,8 @@ export class CADFilterService {
     return {
       layers: filtered,
       total: originalCount,
-      returned: returnedCount
+      returned: returnedCount,
+      simplified
     };
   }
 }
