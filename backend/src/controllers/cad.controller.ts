@@ -148,7 +148,124 @@ export const getSupportedFormats = async (req: Request, res: Response) => {
         { ext: '.dxf', name: 'DXF', description: 'AutoCAD DXF 格式' },
         { ext: '.dwg', name: 'DWG', description: 'AutoCAD DWG 格式（需要额外库支持）' }
       ],
-      maxFileSize: '50MB'
+      maxFileSize: '50MB',
+      chunkSize: '5MB',
+      chunkUploadEnabled: true
     }
   });
+};
+
+/**
+ * 上传分片
+ * POST /api/cad/upload-chunk
+ */
+export const uploadChunk = async (req: Request, res: Response) => {
+  try {
+    if (!req.file) {
+      res.status(400).json({
+        code: 400,
+        message: '分片文件上传失败'
+      });
+      return;
+    }
+
+    const { chunkId, chunkIndex, totalChunks, filename } = req.body;
+    
+    res.json({
+      code: 200,
+      message: '分片上传成功',
+      data: {
+        chunkId,
+        chunkIndex,
+        uploaded: true
+      }
+    });
+  } catch (error: any) {
+    logger.error('分片上传失败:', error);
+    res.status(500).json({
+      code: 500,
+      message: error.message
+    });
+  }
+};
+
+/**
+ * 合并分片
+ * POST /api/cad/merge-chunks
+ */
+export const mergeChunks = async (req: Request, res: Response) => {
+  try {
+    const { chunkId, filename, totalChunks } = req.body;
+    const chunksDir = path.join('uploads/cad/chunks', chunkId);
+    const outputFile = path.join('uploads/cad', filename);
+
+    // 检查分片目录是否存在
+    if (!fs.existsSync(chunksDir)) {
+      res.status(400).json({
+        code: 400,
+        message: '分片目录不存在'
+      });
+      return;
+    }
+
+    // 读取所有分片并按顺序合并
+    const chunks: string[] = [];
+    for (let i = 0; i < totalChunks; i++) {
+      const chunkFiles = fs.readdirSync(chunksDir)
+        .filter(f => f.startsWith(`chunk-${i}-`))
+        .sort();
+      
+      if (chunkFiles.length === 0) {
+        res.status(400).json({
+          code: 400,
+          message: `缺少分片 ${i}`
+        });
+        return;
+      }
+      
+      chunks.push(path.join(chunksDir, chunkFiles[0]));
+    }
+
+    // 合并分片
+    const writeStream = fs.createWriteStream(outputFile);
+    for (const chunkFile of chunks) {
+      const chunkData = fs.readFileSync(chunkFile);
+      writeStream.write(chunkData);
+    }
+    writeStream.end();
+
+    // 等待写入完成
+    await new Promise((resolve, reject) => {
+      writeStream.on('finish', resolve);
+      writeStream.on('error', reject);
+    });
+
+    // 删除分片目录
+    fs.rmSync(chunksDir, { recursive: true });
+
+    // 解析合并后的文件
+    const cadFile = await cadService.parseDXF(outputFile, filename);
+
+    res.json({
+      code: 200,
+      message: '分片合并成功',
+      data: {
+        filename,
+        layers: cadFile.layers.map((l: any) => ({
+          name: l.name,
+          color: l.color,
+          visible: l.visible,
+          entityCount: l.entities.length
+        })),
+        metadata: cadFile.metadata,
+        uploadTime: cadFile.uploadTime
+      }
+    });
+  } catch (error: any) {
+    logger.error('合并分片失败:', error);
+    res.status(500).json({
+      code: 500,
+      message: error.message
+    });
+  }
 };

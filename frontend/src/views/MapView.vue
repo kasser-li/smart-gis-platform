@@ -315,16 +315,38 @@ const deleteMarker = async (id: string) => {
 
 // 上传 CAD 文件
 const uploadCad = async (options: any) => {
+  const file = options.file;
+  const CHUNK_SIZE = 5 * 1024 * 1024; // 5MB per chunk
+  
+  // 如果文件小于 5MB，直接上传
+  if (file.size <= CHUNK_SIZE) {
+    await uploadFileDirectly(file);
+    return;
+  }
+  
+  // 大文件使用分片上传
+  ElMessage.info('文件较大，使用分片上传...');
+  await uploadFileInChunks(file);
+};
+
+// 直接上传小文件
+const uploadFileDirectly = async (file: File) => {
   const formData = new FormData();
-  formData.append('file', options.file);
+  formData.append('file', file);
 
   try {
     const response = await axios.post('/api/cad/upload', formData, {
       headers: {
         'Content-Type': 'multipart/form-data'
+      },
+      onUploadProgress: (progressEvent) => {
+        const percentCompleted = Math.round((progressEvent.loaded * 100) / (progressEvent.total || 1));
+        console.log(`上传进度：${percentCompleted}%`);
       }
     });
 
+    console.log('CAD 上传响应:', response.data);
+    
     if (response.data.code === 200) {
       ElMessage.success('CAD 解析成功');
       showCadDialog.value = false;
@@ -335,20 +357,98 @@ const uploadCad = async (options: any) => {
         count: l.entityCount
       }));
       // 在地图上渲染 CAD 图形
-      renderCadFile(response.data.data);
+      if (response.data.data) {
+        renderCadFile(response.data.data);
+      }
+    } else {
+      ElMessage.error('CAD 解析失败：' + (response.data.message || '未知错误'));
     }
-  } catch (error) {
-    ElMessage.error('上传失败');
+  } catch (error: any) {
+    console.error('CAD 上传错误:', error);
+    ElMessage.error('上传失败：' + (error.response?.data?.message || error.message || '未知错误'));
+  }
+};
+
+// 分片上传大文件
+const uploadFileInChunks = async (file: File) => {
+  const CHUNK_SIZE = 5 * 1024 * 1024; // 5MB
+  const totalChunks = Math.ceil(file.size / CHUNK_SIZE);
+  const chunkId = `${file.name}-${Date.now()}`;
+  
+  try {
+    // 上传所有分片
+    const uploadPromises = Array.from({ length: totalChunks }, async (_, index) => {
+      const start = index * CHUNK_SIZE;
+      const end = Math.min(start + CHUNK_SIZE, file.size);
+      const chunk = file.slice(start, end);
+      
+      const formData = new FormData();
+      formData.append('file', chunk);
+      formData.append('chunkId', chunkId);
+      formData.append('chunkIndex', index.toString());
+      formData.append('totalChunks', totalChunks.toString());
+      formData.append('filename', file.name);
+      
+      const response = await axios.post('/api/cad/upload-chunk', formData, {
+        headers: {
+          'Content-Type': 'multipart/form-data'
+        }
+      });
+      
+      ElMessage.info(`分片 ${index + 1}/${totalChunks} 上传成功`);
+      return response.data;
+    });
+    
+    // 等待所有分片上传完成
+    await Promise.all(uploadPromises);
+    
+    // 合并分片
+    ElMessage.info('正在合并分片...');
+    const mergeResponse = await axios.post('/api/cad/merge-chunks', {
+      chunkId,
+      filename: file.name,
+      totalChunks
+    });
+    
+    if (mergeResponse.data.code === 200) {
+      ElMessage.success('CAD 解析成功（分片上传）');
+      showCadDialog.value = false;
+      // 更新 CAD 图层
+      cadLayers.value = mergeResponse.data.data.layers.map((l: any) => ({
+        name: l.name,
+        visible: true,
+        count: l.entityCount
+      }));
+      // 在地图上渲染 CAD 图形
+      if (mergeResponse.data.data) {
+        renderCadFile(mergeResponse.data.data);
+      }
+    } else {
+      ElMessage.error('分片合并失败');
+    }
+  } catch (error: any) {
+    console.error('分片上传错误:', error);
+    ElMessage.error('上传失败：' + (error.response?.data?.message || error.message || '未知错误'));
   }
 };
 
 // 渲染 CAD 文件
 const renderCadFile = (cadData: any) => {
+  console.log('开始渲染 CAD 文件:', cadData);
+  
   // 清除现有 CAD 图层
   cadLayerGroup.clearLayers();
   
+  let entityCount = 0;
+  
   // 解析 CAD 实体并在地图上绘制
   cadData.layers.forEach((layer: any) => {
+    console.log(`处理图层 ${layer.name}, 实体数：${layer.entities?.length || 0}`);
+    
+    if (!layer.entities || layer.entities.length === 0) {
+      return;
+    }
+    
     layer.entities.forEach((entity: any) => {
       if (entity.type === 'LINE' && entity.geometry) {
         const { start, end } = entity.geometry;
@@ -364,6 +464,7 @@ const renderCadFile = (cadData: any) => {
         });
         polyline.bindPopup(`图层：${layer.name}<br>类型：${entity.type}`);
         cadLayerGroup.addLayer(polyline);
+        entityCount++;
       } else if (entity.type === 'POINT' && entity.geometry) {
         const { x, y } = entity.geometry;
         const circle = L.circleMarker([y, x], {
@@ -375,9 +476,13 @@ const renderCadFile = (cadData: any) => {
         });
         circle.bindPopup(`图层：${layer.name}<br>类型：${entity.type}`);
         cadLayerGroup.addLayer(circle);
+        entityCount++;
       }
     });
   });
+  
+  console.log(`CAD 渲染完成，共绘制 ${entityCount} 个实体`);
+  ElMessage.success(`CAD 解析成功，绘制了 ${entityCount} 个实体`);
   
   // 如果有 CAD 数据，调整地图视图以适应
   if (cadData.metadata?.extents) {
@@ -388,6 +493,7 @@ const renderCadFile = (cadData: any) => {
         [maxY, maxX]
       ] as [number, number][];
       map?.fitBounds(bounds);
+      ElMessage.success('地图视图已调整到 CAD 范围');
     }
   }
 };

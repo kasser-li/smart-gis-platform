@@ -5,6 +5,8 @@
 import { Router } from 'express';
 import multer from 'multer';
 import * as controller from '../controllers/cad.controller';
+import * as fs from 'fs';
+import * as path from 'path';
 
 export const router = Router();
 
@@ -35,8 +37,30 @@ const upload = multer({
   }
 });
 
-// 上传并解析 CAD 文件
+// 分片上传配置
+const chunkStorage = multer.diskStorage({
+  destination: (req, file, cb) => {
+    const chunkDir = path.join('uploads/cad/chunks', req.body.chunkId || 'default');
+    if (!fs.existsSync(chunkDir)) {
+      fs.mkdirSync(chunkDir, { recursive: true });
+    }
+    cb(null, chunkDir);
+  },
+  filename: (req, file, cb) => {
+    cb(null, `chunk-${req.body.chunkIndex}-${Date.now()}`);
+  }
+});
+
+const uploadChunk = multer({ storage: chunkStorage });
+
+// 普通上传（小文件）
 router.post('/upload', upload.single('file'), controller.upload);
+
+// 分片上传 - 上传分片
+router.post('/upload-chunk', uploadChunk.single('file'), controller.uploadChunk);
+
+// 分片上传 - 合并分片
+router.post('/merge-chunks', controller.mergeChunks);
 
 // 获取支持的格式
 router.get('/supported-formats', controller.getSupportedFormats);
