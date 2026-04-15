@@ -375,6 +375,8 @@ const uploadFileInChunks = async (file: File) => {
   const totalChunks = Math.ceil(file.size / CHUNK_SIZE);
   const chunkId = `${file.name}-${Date.now()}`;
   
+  console.log(`开始分片上传：${file.name}, 大小：${file.size} bytes, 分片数：${totalChunks}`);
+  
   try {
     // 上传所有分片
     const uploadPromises = Array.from({ length: totalChunks }, async (_, index) => {
@@ -385,9 +387,11 @@ const uploadFileInChunks = async (file: File) => {
       const formData = new FormData();
       formData.append('file', chunk);
       formData.append('chunkId', chunkId);
-      formData.append('chunkIndex', index.toString());
-      formData.append('totalChunks', totalChunks.toString());
+      formData.append('chunkIndex', String(index));  // 确保是字符串
+      formData.append('totalChunks', String(totalChunks));  // 确保是字符串
       formData.append('filename', file.name);
+      
+      console.log(`上传分片 ${index + 1}/${totalChunks}...`);
       
       const response = await axios.post('/api/cad/upload-chunk', formData, {
         headers: {
@@ -395,6 +399,7 @@ const uploadFileInChunks = async (file: File) => {
         }
       });
       
+      console.log(`分片 ${index + 1}/${totalChunks} 响应:`, response.data);
       ElMessage.info(`分片 ${index + 1}/${totalChunks} 上传成功`);
       return response.data;
     });
@@ -404,11 +409,15 @@ const uploadFileInChunks = async (file: File) => {
     
     // 合并分片
     ElMessage.info('正在合并分片...');
+    console.log('开始合并分片...');
+    
     const mergeResponse = await axios.post('/api/cad/merge-chunks', {
       chunkId,
       filename: file.name,
       totalChunks
     });
+    
+    console.log('合并分片响应:', mergeResponse.data);
     
     if (mergeResponse.data.code === 200) {
       ElMessage.success('CAD 解析成功（分片上传）');
@@ -424,10 +433,14 @@ const uploadFileInChunks = async (file: File) => {
         renderCadFile(mergeResponse.data.data);
       }
     } else {
-      ElMessage.error('分片合并失败');
+      ElMessage.error('分片合并失败：' + (mergeResponse.data.message || '未知错误'));
     }
   } catch (error: any) {
     console.error('分片上传错误:', error);
+    if (error.response) {
+      console.error('错误响应:', error.response.data);
+      console.error('错误状态码:', error.response.status);
+    }
     ElMessage.error('上传失败：' + (error.response?.data?.message || error.message || '未知错误'));
   }
 };
