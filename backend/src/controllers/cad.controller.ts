@@ -56,7 +56,8 @@ export const upload = async (req: Request, res: Response) => {
           name: l.name,
           color: l.color,
           visible: l.visible,
-          entityCount: l.entities.length
+          entityCount: l.entities.length,
+          entities: l.entities  // 返回完整的 entities 数组
         })),
         metadata: cadFile.metadata,
         uploadTime: cadFile.uploadTime
@@ -287,7 +288,8 @@ export const mergeChunks = async (req: Request, res: Response) => {
           name: l.name,
           color: l.color,
           visible: l.visible,
-          entityCount: l.entities.length
+          entityCount: l.entities.length,
+          entities: l.entities  // 返回完整的 entities 数组
         })),
         metadata: cadFile.metadata,
         uploadTime: cadFile.uploadTime
