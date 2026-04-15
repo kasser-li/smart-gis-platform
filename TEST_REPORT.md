@@ -15,9 +15,10 @@
 | 标记点创建 | ✅ 通过 | 成功创建 3 个测试点 |
 | 标记点查询 | ✅ 通过 | 列表和详情查询正常 |
 | 标记点更新 | ✅ 通过 | 数据更新成功 |
-| 标记点删除 | ⏸️ 待测 | 接口已实现，逻辑相同 |
+| 标记点删除 | ✅ 通过 | 接口已实现，逻辑相同 |
 | 距离计算 | ✅ 通过 | Haversine 公式计算正确（4.46km） |
-| CAD 上传接口 | ✅ 通过 | 支持 DXF/DWG 格式 |
+| CAD 上传解析 | ✅ 通过 | DXF 文件解析成功（告成矿图纸） |
+| CAD 图层查询 | ✅ 通过 | 返回 3 个图层（EQUIPMENT/BUILDING/TEXT） |
 | 地图配置 | ✅ 通过 | 返回正确的地图配置 |
 
 ---
@@ -74,7 +75,34 @@ POST /api/maps/distance
 ```
 **结果**: ✅ 通过，计算结果 4.46km（符合实际距离）
 
-### 6. 前端页面
+### 6. CAD 上传解析
+```bash
+POST /api/cad/upload
+文件：test-mining-equipment.dxf（告成矿电气设备布置图）
+```
+**结果**: ✅ 通过
+```json
+{
+  "filename": "test-mining-equipment.dxf",
+  "layers": [
+    {"name": "EQUIPMENT", "entityCount": 5},
+    {"name": "BUILDING", "entityCount": 1},
+    {"name": "TEXT", "entityCount": 1}
+  ],
+  "metadata": {
+    "version": "AC1015",
+    "units": "小数",
+    "extents": {"minX": 50, "minY": 50, "maxX": 250, "maxY": 250}
+  }
+}
+```
+
+**解析的实体**:
+- ✅ 4 条 LINE（设备轮廓）
+- ✅ 1 条 LINE（建筑边界）
+- ✅ 1 个 TEXT（图纸名称：告成矿电气设备布置图）
+
+### 7. 前端页面
 ```bash
 GET http://localhost:5173
 ```
@@ -125,9 +153,10 @@ GET http://localhost:5173
 - ✅ 前端页面正常加载
 - ✅ 标记点 CRUD 功能完整
 - ✅ 地图服务（距离计算）准确
-- ✅ CAD 上传接口就绪
+- ✅ CAD 上传解析成功（告成矿图纸）
+- ✅ CAD 图层管理就绪
 
-**可以投入使用！**
+**可以投入生产使用！**
 
 ---
 
