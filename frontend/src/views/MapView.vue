@@ -600,11 +600,15 @@ const renderCadFile = (cadData: any) => {
   ElMessage.success(`CAD 解析成功，绘制了 ${entityCount} 个实体`);
   
   // 调整地图视图以适应 CAD 图形
-  if (entityCount > 0) {
-    const bounds = cadLayerGroup.getBounds();
-    if (bounds.isValid()) {
-      map?.fitBounds(bounds, { padding: [50, 50] });
-      ElMessage.success('地图视图已调整到 CAD 范围');
+  if (entityCount > 0 && cadLayerGroup.getLayers().length > 0) {
+    const layers = cadLayerGroup.getLayers();
+    if (layers.length > 0) {
+      const group = L.featureGroup(layers);
+      const bounds = group.getBounds();
+      if (bounds.isValid()) {
+        map?.fitBounds(bounds, { padding: [50, 50] });
+        ElMessage.success('地图视图已调整到 CAD 范围');
+      }
     }
   }
 };
