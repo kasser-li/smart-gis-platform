@@ -197,6 +197,12 @@ export const uploadChunk = async (req: Request, res: Response) => {
  */
 export const mergeChunks = async (req: Request, res: Response) => {
   try {
+    // 调试日志
+    logger.info('=== 调试信息 ===');
+    logger.info(`cadService: ${cadService ? '已定义' : 'undefined'}`);
+    logger.info(`cadService.parseDXF: ${cadService?.parseDXF ? '已定义' : 'undefined'}`);
+    logger.info('================');
+    
     const { chunkId, filename, totalChunks } = req.body;
     
     // 使用绝对路径
