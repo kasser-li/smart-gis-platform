@@ -11,6 +11,7 @@ import { logger } from './utils/logger';
 import { router as markerRouter } from './routes/marker.routes';
 import { router as cadRouter } from './routes/cad.routes';
 import { router as mapRouter } from './routes/map.routes';
+import { router as cadQueryRouter } from './routes/cad-query.routes';
 
 // 加载环境变量
 dotenv.config();
@@ -33,6 +34,7 @@ app.use((req, res, next) => {
 app.use('/api/markers', markerRouter);
 app.use('/api/cad', cadRouter);
 app.use('/api/maps', mapRouter);
+app.use('/api/cad/entities', cadQueryRouter);
 
 // 健康检查
 app.get('/health', (req, res) => {

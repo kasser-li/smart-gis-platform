@@ -160,6 +160,9 @@ const activeLayers = ref(['markers']);
 const markerLayerGroup = L.layerGroup();
 const cadLayerGroup = L.layerGroup();
 
+// 存储当前 CAD 文件信息（用于动态加载）
+const currentCadFile = ref<string | null>(null);
+
 // 标记点表单
 const markerForm = reactive({
   name: '',
@@ -197,6 +200,42 @@ onMounted(() => {
 
   // 加载标记点
   loadMarkers();
+  
+  // === 阶段 3: 前端优化 - 添加 zoom 和视口监听 ===
+  
+  // 监听 zoom 变化 - 动态加载 LOD
+  let zoomChangeTimer: number | null = null;
+  map.on('zoomend', () => {
+    // 防抖：zoom 停止变化 500ms 后才重新加载
+    if (zoomChangeTimer) clearTimeout(zoomChangeTimer);
+    zoomChangeTimer = window.setTimeout(() => {
+      const zoom = map.getZoom();
+      console.log(`Zoom 变化：${zoom}`);
+      
+      // 如果有 CAD 数据，重新加载
+      if (currentCadFile.value) {
+        reloadCadWithLOD(zoom);
+      }
+    }, 500);
+  });
+  
+  // 监听地图移动 - 视口裁剪
+  let moveTimer: number | null = null;
+  map.on('moveend', () => {
+    // 防抖：地图停止移动 300ms 后才重新加载
+    if (moveTimer) clearTimeout(moveTimer);
+    moveTimer = window.setTimeout(() => {
+      const bounds = map.getBounds();
+      console.log(`地图移动：[${bounds.getSouth()}, ${bounds.getNorth()}] x [${bounds.getWest()}, ${bounds.getEast()}]`);
+      
+      // 如果有 CAD 数据，重新加载可见区域
+      if (currentCadFile.value) {
+        reloadCadWithViewport(bounds);
+      }
+    }, 300);
+  });
+  
+  console.log('✅ 前端优化已启用：LOD + 视口动态加载');
 });
 
 // 加载标记点
