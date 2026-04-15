@@ -496,62 +496,107 @@ const renderCadFile = (cadData: any) => {
     }
     
     layer.entities.forEach((entity: any) => {
+      // 处理线段
       if (entity.type === 'LINE' && entity.geometry) {
         const { start, end } = entity.geometry;
         
         let latLngs: [number, number][];
         
         if (isGeoCoordinate) {
-          // 已经是地理坐标，直接使用
-          latLngs = [
-            [start.y, start.x],
-            [end.y, end.x]
-          ];
+          latLngs = [[start.y, start.x], [end.y, end.x]];
         } else {
-          // 将 CAD 坐标转换为地图坐标
-          // 以地图中心为基准，按比例缩放
           const lat1 = mapCenter.lat + (start.y - cadCenterY) * scale;
           const lng1 = mapCenter.lng + (start.x - cadCenterX) * scale;
           const lat2 = mapCenter.lat + (end.y - cadCenterY) * scale;
           const lng2 = mapCenter.lng + (end.x - cadCenterX) * scale;
-          
-          latLngs = [
-            [lat1, lng1],
-            [lat2, lng2]
-          ];
+          latLngs = [[lat1, lng1], [lat2, lng2]];
         }
         
-        const polyline = L.polyline(latLngs, {
-          color: '#ff0000',
-          weight: 2,
-          opacity: 0.8
-        });
-        polyline.bindPopup(`图层：${layer.name}<br>类型：${entity.type}`);
+        const polyline = L.polyline(latLngs, { color: '#ff0000', weight: 1, opacity: 0.7 });
         cadLayerGroup.addLayer(polyline);
         entityCount++;
         
+      // 处理轻量多段线（LWPOLYLINE）
+      } else if (entity.type === 'LWPOLYLINE' && entity.geometry?.vertices) {
+        const latLngs: [number, number][] = entity.geometry.vertices.map((v: any) => {
+          if (isGeoCoordinate) {
+            return [v.y, v.x] as [number, number];
+          } else {
+            return [
+              mapCenter.lat + (v.y - cadCenterY) * scale,
+              mapCenter.lng + (v.x - cadCenterX) * scale
+            ] as [number, number];
+          }
+        });
+        
+        const polyline = L.polyline(latLngs, { color: '#0066cc', weight: 1, opacity: 0.7 });
+        cadLayerGroup.addLayer(polyline);
+        entityCount++;
+        
+      // 处理多段线（POLYLINE）
+      } else if (entity.type === 'POLYLINE' && entity.geometry?.vertices) {
+        const latLngs: [number, number][] = entity.geometry.vertices.map((v: any) => {
+          if (isGeoCoordinate) {
+            return [v.y, v.x] as [number, number];
+          } else {
+            return [
+              mapCenter.lat + (v.y - cadCenterY) * scale,
+              mapCenter.lng + (v.x - cadCenterX) * scale
+            ] as [number, number];
+          }
+        });
+        
+        const polyline = L.polyline(latLngs, { color: '#0066cc', weight: 1, opacity: 0.7 });
+        cadLayerGroup.addLayer(polyline);
+        entityCount++;
+        
+      // 处理点（POINT）
       } else if (entity.type === 'POINT' && entity.geometry) {
         const { x, y } = entity.geometry;
-        
         let lat: number, lng: number;
         
         if (isGeoCoordinate) {
-          lat = y;
-          lng = x;
+          lat = y; lng = x;
         } else {
           lat = mapCenter.lat + (y - cadCenterY) * scale;
           lng = mapCenter.lng + (x - cadCenterX) * scale;
         }
         
-        const circle = L.circleMarker([lat, lng], {
-          radius: 5,
-          fillColor: '#00ff00',
-          color: '#333',
-          weight: 1,
-          fillOpacity: 1
-        });
-        circle.bindPopup(`图层：${layer.name}<br>类型：${entity.type}`);
+        const circle = L.circleMarker([lat, lng], { radius: 3, fillColor: '#00ff00', color: '#333', weight: 1, fillOpacity: 1 });
         cadLayerGroup.addLayer(circle);
+        entityCount++;
+        
+      // 处理圆（CIRCLE）
+      } else if (entity.type === 'CIRCLE' && entity.geometry) {
+        const { center, radius } = entity.geometry;
+        let lat: number, lng: number;
+        
+        if (isGeoCoordinate) {
+          lat = center.y; lng = center.x;
+        } else {
+          lat = mapCenter.lat + (center.y - cadCenterY) * scale;
+          lng = mapCenter.lng + (center.x - cadCenterX) * scale;
+        }
+        
+        const circle = L.circle([lat, lng], { radius: radius * scale * 111000, color: '#ff6600', weight: 1, opacity: 0.7 });
+        cadLayerGroup.addLayer(circle);
+        entityCount++;
+        
+      // 处理块插入（INSERT）
+      } else if (entity.type === 'INSERT' && entity.geometry) {
+        const { x, y } = entity.geometry;
+        let lat: number, lng: number;
+        
+        if (isGeoCoordinate) {
+          lat = y; lng = x;
+        } else {
+          lat = mapCenter.lat + (y - cadCenterY) * scale;
+          lng = mapCenter.lng + (x - cadCenterX) * scale;
+        }
+        
+        const marker = L.circleMarker([lat, lng], { radius: 4, fillColor: '#ff00ff', color: '#333', weight: 1, fillOpacity: 0.8 });
+        marker.bindPopup(`图层：${layer.name}<br>类型：${entity.type}`);
+        cadLayerGroup.addLayer(marker);
         entityCount++;
       }
     });
