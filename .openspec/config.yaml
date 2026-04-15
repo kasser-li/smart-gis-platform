@@ -1,0 +1,48 @@
+# OpenSpec 配置
+
+# 项目名称
+name: smart-gis-platform
+
+# 项目描述
+description: GIS 地图标点与 CAD 图纸解析系统
+
+# 技术栈
+stack:
+  backend:
+    - nodejs
+    - typescript
+    - express
+  frontend:
+    - vue3
+    - typescript
+    - leaflet
+  database:
+    - postgresql
+    - postgis
+
+# 规则目录
+rules:
+  - rules/00-general.md
+  - rules/10-backend.md
+  - rules/20-frontend.md
+  - rules/30-database.md
+
+# 工作流
+workflows:
+  - name: 需求探索
+    command: explore
+  - name: 生成提案
+    command: propose
+  - name: 生成代码
+    command: apply
+  - name: 验证
+    command: verify
+  - name: 归档
+    command: archive
+
+# 代码风格
+style:
+  indent: 2
+  quotes: single
+  semicolons: true
+  trailingComma: none
