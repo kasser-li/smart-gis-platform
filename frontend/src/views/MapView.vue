@@ -26,7 +26,7 @@
     </div>
 
     <!-- 地图容器 -->
-    <div ref="mapContainer" class="map-wrapper"></div>
+    <div ref="mapContainer" :class="['map-wrapper', activeTool === 'marker' ? 'marker-mode' : '']"></div>
 
     <!-- 右侧图层面板 -->
     <div v-if="showLayerPanel" class="layer-panel">
@@ -156,6 +156,10 @@ const markerLayers = ref([
 const cadLayers = ref<any[]>([]);
 const activeLayers = ref(['markers']);
 
+// 存储地图上的标记点图层
+const markerLayerGroup = L.layerGroup();
+const cadLayerGroup = L.layerGroup();
+
 // 标记点表单
 const markerForm = reactive({
   name: '',
@@ -178,6 +182,10 @@ onMounted(() => {
     maxZoom: 19
   }).addTo(map);
 
+  // 添加标记点图层和 CAD 图层
+  markerLayerGroup.addTo(map);
+  cadLayerGroup.addTo(map);
+
   // 点击地图添加标记点
   map.on('click', (e: L.LeafletMouseEvent) => {
     if (activeTool.value === 'marker') {
@@ -198,10 +206,52 @@ const loadMarkers = async () => {
     if (response.data.code === 200) {
       markers.value = response.data.data;
       updateMarkerLayers();
+      // 在地图上渲染标记点
+      renderMarkers();
     }
   } catch (error) {
     ElMessage.error('加载标记点失败');
   }
+};
+
+// 在地图上渲染标记点
+const renderMarkers = () => {
+  // 清除现有标记
+  markerLayerGroup.clearLayers();
+  
+  // 添加新标记
+  markers.value.forEach(marker => {
+    const color = getMarkerColor(marker.type);
+    const circle = L.circleMarker([marker.latitude, marker.longitude], {
+      radius: 10,
+      fillColor: color,
+      color: '#333',
+      weight: 2,
+      opacity: 1,
+      fillOpacity: 0.8
+    });
+    
+    // 添加弹窗
+    circle.bindPopup(`
+      <strong>${marker.name}</strong><br>
+      类型：${marker.type}<br>
+      描述：${marker.description || '无'}<br>
+      坐标：${marker.latitude.toFixed(4)}, ${marker.longitude.toFixed(4)}
+    `);
+    
+    markerLayerGroup.addLayer(circle);
+  });
+};
+
+// 获取标记点颜色
+const getMarkerColor = (type: string) => {
+  const colors: Record<string, string> = {
+    point: '#3498db',      // 蓝色
+    building: '#e74c3c',   // 红色
+    facility: '#2ecc71',   // 绿色
+    warning: '#f39c12'     // 橙色
+  };
+  return colors[type] || '#95a5a6';
 };
 
 // 更新标记点图层统计
@@ -284,9 +334,61 @@ const uploadCad = async (options: any) => {
         visible: true,
         count: l.entityCount
       }));
+      // 在地图上渲染 CAD 图形
+      renderCadFile(response.data.data);
     }
   } catch (error) {
     ElMessage.error('上传失败');
+  }
+};
+
+// 渲染 CAD 文件
+const renderCadFile = (cadData: any) => {
+  // 清除现有 CAD 图层
+  cadLayerGroup.clearLayers();
+  
+  // 解析 CAD 实体并在地图上绘制
+  cadData.layers.forEach((layer: any) => {
+    layer.entities.forEach((entity: any) => {
+      if (entity.type === 'LINE' && entity.geometry) {
+        const { start, end } = entity.geometry;
+        // 简化的坐标转换（实际项目需要正确的投影转换）
+        const latLngs = [
+          [start.y, start.x],
+          [end.y, end.x]
+        ];
+        const polyline = L.polyline(latLngs as [number, number][], {
+          color: '#ff0000',
+          weight: 2,
+          opacity: 0.8
+        });
+        polyline.bindPopup(`图层：${layer.name}<br>类型：${entity.type}`);
+        cadLayerGroup.addLayer(polyline);
+      } else if (entity.type === 'POINT' && entity.geometry) {
+        const { x, y } = entity.geometry;
+        const circle = L.circleMarker([y, x], {
+          radius: 5,
+          fillColor: '#00ff00',
+          color: '#333',
+          weight: 1,
+          fillOpacity: 1
+        });
+        circle.bindPopup(`图层：${layer.name}<br>类型：${entity.type}`);
+        cadLayerGroup.addLayer(circle);
+      }
+    });
+  });
+  
+  // 如果有 CAD 数据，调整地图视图以适应
+  if (cadData.metadata?.extents) {
+    const { minX, minY, maxX, maxY } = cadData.metadata.extents;
+    if (minX !== 0 || maxX !== 0 || minY !== 0 || maxY !== 0) {
+      const bounds = [
+        [minY, minX],
+        [maxY, maxX]
+      ] as [number, number][];
+      map?.fitBounds(bounds);
+    }
   }
 };
 </script>
@@ -332,6 +434,11 @@ const uploadCad = async (options: any) => {
 .map-wrapper {
   width: 100%;
   height: 100%;
+  cursor: crosshair;
+}
+
+.map-wrapper.marker-mode {
+  cursor: pointer;
 }
 
 .layer-panel {
