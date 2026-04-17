@@ -7,8 +7,6 @@ import { logger } from '../utils/logger';
 import * as fs from 'fs';
 import * as path from 'path';
 import DxfParser from 'dxf-parser';
-// DWG 解析器（基于 libredwg WebAssembly）
-import { DwGParser } from '@mlightcad/libredwg-web';
 
 export interface CADLayer {
   name: string;
@@ -63,7 +61,6 @@ export interface CADFile {
 
 export class CADService {
   private dxfParser = new DxfParser();
-  private dwgParser = new DwGParser();
 
   /**
    * 解析 CAD 文件（支持 DXF 和 DWG）
@@ -72,7 +69,14 @@ export class CADService {
     const ext = path.extname(filename).toLowerCase();
     
     if (ext === '.dwg') {
-      return this.parseDWG(filePath, filename);
+      throw new Error(
+        'DWG 格式需要转换为 DXF 后上传。\n\n' +
+        '转换方法：\n' +
+        '1. 使用 AutoCAD: 文件 → 另存为 → 选择 DXF 格式\n' +
+        '2. 使用在线转换：https://cadsofttools.com/dwg-to-dxf/\n' +
+        '3. 使用 ODA File Converter: https://www.opendesign.com/guestfiles/oda_file_converter\n' +
+        '4. 使用 LibreDWG: dwg2dxf 命令'
+      );
     } else if (ext === '.dxf') {
       return this.parseDXF(filePath, filename);
     } else {
@@ -118,43 +122,7 @@ export class CADService {
     }
   }
 
-  /**
-   * 解析 DWG 文件
-   */
-  async parseDWG(filePath: string, filename: string): Promise<CADFile> {
-    try {
-      logger.info(`开始解析 DWG 文件：${filename}`);
-      
-      const buffer = fs.readFileSync(filePath);
-      
-      // 使用 libredwg-web 解析 DWG
-      const dwgData = await this.dwgParser.parse(buffer);
-      
-      logger.info(`DWG 解析成功：${dwgData.entities?.length || 0} 个实体`);
-      
-      // 转换图层和实体（DWG 数据结构与 DXF 类似）
-      const layers = this.convertLayers(dwgData);
-      const extents = this.calculateExtentsFromDXF(dwgData);
 
-      const cadFile: CADFile = {
-        filename,
-        layers,
-        metadata: {
-          version: dwgData.header?.ACADVER || 'Unknown',
-          units: this.getUnits(dwgData.header?.MEASUREMENT),
-          extents
-        },
-        uploadTime: new Date()
-      };
-
-      logger.info(`DWG 解析完成：${layers.length} 个图层，${layers.reduce((sum, l) => sum + l.entities.length, 0)} 个实体`);
-      
-      return cadFile;
-    } catch (error: any) {
-      logger.error('DWG 解析失败:', error);
-      throw new Error(`DWG 解析失败：${error.message}`);
-    }
-  }
 
   /**
    * 转换图层数据
