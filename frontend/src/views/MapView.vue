@@ -516,6 +516,9 @@ const renderCadFile = (cadData: any) => {
   const cadWidth = extents.maxX - extents.minX;
   const cadHeight = extents.maxY - extents.minY;
   
+  // 使用当前地图中心作为 CAD 图的中心
+  const mapCenter = map?.getCenter() || { lat: 39.9042, lng: 116.4074 };
+  
   // 如果不是地理坐标，需要转换到地图坐标
   // 辅助函数：获取实体样式
   const getEntityStyle = (entity: any, layer: any) => {
