@@ -1,12 +1,14 @@
 /**
  * CAD 图纸解析服务
- * 支持 DXF 文件解析
+ * 支持 DXF/DWG 文件解析
  */
 
 import { logger } from '../utils/logger';
 import * as fs from 'fs';
 import * as path from 'path';
 import DxfParser from 'dxf-parser';
+// DWG 解析器（基于 libredwg WebAssembly）
+import { DwGParser } from '@mlightcad/libredwg-web';
 
 export interface CADLayer {
   name: string;
@@ -60,7 +62,23 @@ export interface CADFile {
 }
 
 export class CADService {
-  private parser = new DxfParser();
+  private dxfParser = new DxfParser();
+  private dwgParser = new DwGParser();
+
+  /**
+   * 解析 CAD 文件（支持 DXF 和 DWG）
+   */
+  async parseCAD(filePath: string, filename: string): Promise<CADFile> {
+    const ext = path.extname(filename).toLowerCase();
+    
+    if (ext === '.dwg') {
+      return this.parseDWG(filePath, filename);
+    } else if (ext === '.dxf') {
+      return this.parseDXF(filePath, filename);
+    } else {
+      throw new Error(`不支持的文件格式：${ext}，仅支持 .dxf 和 .dwg`);
+    }
+  }
 
   /**
    * 解析 DXF 文件
@@ -72,7 +90,7 @@ export class CADService {
       const content = fs.readFileSync(filePath, 'utf-8');
       
       // 使用专业的 dxf-parser 解析
-      const dxfData = this.parser.parseSync(content);
+      const dxfData = this.dxfParser.parseSync(content);
       
       logger.info(`DXF 解析成功：${dxfData.entities?.length || 0} 个实体`);
       
@@ -97,6 +115,44 @@ export class CADService {
     } catch (error: any) {
       logger.error('DXF 解析失败:', error);
       throw new Error(`DXF 解析失败：${error.message}`);
+    }
+  }
+
+  /**
+   * 解析 DWG 文件
+   */
+  async parseDWG(filePath: string, filename: string): Promise<CADFile> {
+    try {
+      logger.info(`开始解析 DWG 文件：${filename}`);
+      
+      const buffer = fs.readFileSync(filePath);
+      
+      // 使用 libredwg-web 解析 DWG
+      const dwgData = await this.dwgParser.parse(buffer);
+      
+      logger.info(`DWG 解析成功：${dwgData.entities?.length || 0} 个实体`);
+      
+      // 转换图层和实体（DWG 数据结构与 DXF 类似）
+      const layers = this.convertLayers(dwgData);
+      const extents = this.calculateExtentsFromDXF(dwgData);
+
+      const cadFile: CADFile = {
+        filename,
+        layers,
+        metadata: {
+          version: dwgData.header?.ACADVER || 'Unknown',
+          units: this.getUnits(dwgData.header?.MEASUREMENT),
+          extents
+        },
+        uploadTime: new Date()
+      };
+
+      logger.info(`DWG 解析完成：${layers.length} 个图层，${layers.reduce((sum, l) => sum + l.entities.length, 0)} 个实体`);
+      
+      return cadFile;
+    } catch (error: any) {
+      logger.error('DWG 解析失败:', error);
+      throw new Error(`DWG 解析失败：${error.message}`);
     }
   }
 

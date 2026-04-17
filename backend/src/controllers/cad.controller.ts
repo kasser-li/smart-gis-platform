@@ -44,8 +44,8 @@ export const upload = async (req: Request, res: Response) => {
       return;
     }
 
-    // 解析文件
-    const cadFile = await cadService.parseDXF(req.file.path, req.file.originalname);
+    // 解析文件（支持 DXF 和 DWG）
+    const cadFile = await cadService.parseCAD(req.file.path, req.file.originalname);
 
     // 返回解析结果
     res.json({
@@ -96,7 +96,7 @@ export const getDetails = async (req: Request, res: Response) => {
       return;
     }
 
-    const cadFile = await cadService.parseDXF(filePath, filename);
+    const cadFile = await cadService.parseCAD(filePath, filename);
     
     res.json({
       code: 200,
@@ -277,7 +277,7 @@ export const mergeChunks = async (req: Request, res: Response) => {
 
     // 解析合并后的文件
     logger.info(`开始解析 CAD 文件：${filename}`);
-    const cadFile = await cadService.parseDXF(outputFile, filename);
+    const cadFile = await cadService.parseCAD(outputFile, filename);
     logger.info(`CAD 解析成功：${filename}`);
     
     // 应用 LOD 过滤（如果提供了 renderOptions）
