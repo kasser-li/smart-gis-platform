@@ -10,6 +10,15 @@ import DxfParser from 'dxf-parser';
 
 export interface CADLayer {
   name: string;
+  // 图层样式
+  style?: {
+    color?: number;           // 颜色
+    colorIndex?: number;      // AutoCAD 索引色
+    lineType?: string;        // 线型
+    lineWeight?: number;      // 线宽
+    transparency?: number;    // 透明度
+  };
+  // 兼容字段（保持向后兼容）
   color: number;
   visible: boolean;
   entities: CADEntity[];
@@ -18,8 +27,20 @@ export interface CADLayer {
 export interface CADEntity {
   type: string;
   layer: string;
-  properties: Record<string, any>;
   geometry: any;
+  // 样式属性
+  style?: {
+    color?: number;           // 颜色 (RGB 或索引色)
+    colorIndex?: number;      // AutoCAD 索引色 (0-256)
+    lineType?: string;        // 线型 (CONTINUOUS, DASHED, DOT 等)
+    lineTypeScale?: number;   // 线型比例
+    lineWeight?: number;      // 线宽 (单位：0.01mm, -2=ByLayer, -1=ByBlock)
+    visible?: boolean;        // 可见性
+    thickness?: number;       // 厚度
+    transparency?: number;    // 透明度 (0-100)
+  };
+  // 原始属性（保留所有 dxf-parser 返回的属性）
+  properties?: Record<string, any>;
 }
 
 export interface CADFile {
@@ -85,14 +106,22 @@ export class CADService {
   private convertLayers(dxfData: any): CADLayer[] {
     const layersMap = new Map<string, CADLayer>();
     
-    // 初始化所有图层
+    // 初始化所有图层（从 tables.layers 获取图层定义）
     if (dxfData.tables?.layers) {
       for (const [name, layer] of Object.entries(dxfData.tables.layers)) {
         const layerObj: any = layer as any;
         layersMap.set(name, {
           name,
-          color: layerObj?.color || 7,
-          visible: true,
+          style: {
+            color: layerObj.color,
+            colorIndex: layerObj.colorIndex,
+            lineType: layerObj.lineType,
+            lineWeight: layerObj.lineweight,
+            transparency: layerObj.transparency
+          },
+          // 兼容字段
+          color: layerObj.color || 7,
+          visible: layerObj.visible !== false,
           entities: []
         });
       }
@@ -102,6 +131,11 @@ export class CADService {
     if (layersMap.size === 0) {
       layersMap.set('0', {
         name: '0',
+        style: {
+          color: 7,
+          colorIndex: 7
+        },
+        // 兼容字段
         color: 7,
         visible: true,
         entities: []
@@ -118,8 +152,13 @@ export class CADService {
         if (!layer) {
           layer = {
             name: layerName,
-            color: 7,
-            visible: true,
+            style: {
+              color: entity.color,
+              colorIndex: entity.colorIndex
+            },
+            // 兼容字段
+            color: entity.color || 7,
+            visible: entity.visible !== false,
             entities: []
           };
           layersMap.set(layerName, layer);
@@ -145,8 +184,20 @@ export class CADService {
     const converted: CADEntity = {
       type: entity.type,
       layer: entity.layer || '0',
-      properties: entity,
-      geometry: {}
+      geometry: {},
+      // 提取样式属性
+      style: {
+        color: entity.color,
+        colorIndex: entity.colorIndex,
+        lineType: entity.lineType,
+        lineTypeScale: entity.lineTypeScale,
+        lineWeight: entity.lineweight,
+        visible: entity.visible,
+        thickness: entity.thickness,
+        transparency: entity.transparency
+      },
+      // 保留原始属性
+      properties: entity
     };
     
     // 根据类型提取几何信息

@@ -517,8 +517,71 @@ const renderCadFile = (cadData: any) => {
   const cadHeight = extents.maxY - extents.minY;
   
   // 如果不是地理坐标，需要转换到地图坐标
-  // 使用当前地图中心作为 CAD 图的中心
-  const mapCenter = map?.getCenter() || { lat: 39.9042, lng: 116.4074 };
+  // 辅助函数：获取实体样式
+  const getEntityStyle = (entity: any, layer: any) => {
+    // 优先使用实体级别的样式
+    const style = entity.style || {};
+    
+    // 颜色处理
+    let color = '#000000';
+    if (style.color !== undefined && style.color !== null) {
+      // 如果是 RGB 值
+      if (typeof style.color === 'number' && style.color > 0xFFFFFF) {
+        color = '#' + (style.color & 0xFFFFFF).toString(16).padStart(6, '0');
+      } else if (typeof style.color === 'number') {
+        // 索引色，使用默认映射
+        const colorMap: Record<number, string> = {
+          0: '#000000', 1: '#FF0000', 2: '#FFFF00', 3: '#00FF00', 4: '#00FFFF',
+          5: '#0000FF', 6: '#FF00FF', 7: '#FFFFFF', 8: '#414141', 9: '#808080'
+        };
+        color = colorMap[style.color] || '#000000';
+      }
+    } else if (layer.color !== undefined) {
+      // 使用图层颜色
+      const layerColorMap: Record<number, string> = {
+        0: '#000000', 1: '#FF0000', 2: '#FFFF00', 3: '#00FF00', 4: '#00FFFF',
+        5: '#0000FF', 6: '#FF00FF', 7: '#FFFFFF', 8: '#414141', 9: '#808080'
+      };
+      color = layerColorMap[layer.color] || '#333333';
+    }
+    
+    // 线宽处理
+    let weight = 1;
+    if (style.lineWeight !== undefined && style.lineWeight !== null) {
+      // lineWeight 单位是 0.01mm
+      if (style.lineWeight > 0) {
+        weight = Math.max(1, Math.min(5, style.lineWeight / 20));
+      } else if (style.lineWeight === -3) {
+        weight = 1; // STANDARD
+      } else if (style.lineWeight === -2) {
+        weight = 1; // BYLAYER
+      } else if (style.lineWeight === -1) {
+        weight = 1; // BYBLOCK
+      }
+    }
+    
+    // 透明度处理
+    let opacity = 0.7;
+    if (style.transparency !== undefined && style.transparency !== null) {
+      opacity = 1 - (style.transparency / 100);
+    }
+    
+    // 线型处理（Leaflet 不直接支持虚线，需要 dashArray）
+    let dashArray: string | number[] | undefined = undefined;
+    if (style.lineType) {
+      if (style.lineType === 'DASHED') {
+        dashArray = [10, 5];
+      } else if (style.lineType === 'DOT') {
+        dashArray = [2, 5];
+      } else if (style.lineType === 'DASHDOT') {
+        dashArray = [10, 5, 2, 5];
+      } else if (style.lineType === 'HIDDEN') {
+        dashArray = [5, 5];
+      }
+    }
+    
+    return { color, weight, opacity, dashArray };
+  };
   
   // 计算缩放比例（将 CAD 单位转换为地图单位）
   // 假设 CAD 单位是米，1 度 ≈ 111km
@@ -547,7 +610,13 @@ const renderCadFile = (cadData: any) => {
           const lng2 = isGeoCoordinate ? end.x : mapCenter.lng + (end.x - cadCenterX) * scale;
           
           if (!isNaN(lat1) && !isNaN(lng1) && !isNaN(lat2) && !isNaN(lng2)) {
-            const polyline = L.polyline([[lat1, lng1], [lat2, lng2]], { color: '#ff0000', weight: 1, opacity: 0.7 });
+            const style = getEntityStyle(entity, layer);
+            const polyline = L.polyline([[lat1, lng1], [lat2, lng2]], {
+              color: style.color,
+              weight: style.weight,
+              opacity: style.opacity,
+              dashArray: style.dashArray
+            });
             cadLayerGroup.addLayer(polyline);
             entityCount++;
           }
@@ -564,7 +633,13 @@ const renderCadFile = (cadData: any) => {
             .filter(([lat, lng]) => !isNaN(lat) && !isNaN(lng));
           
           if (latLngs.length > 1) {
-            const polyline = L.polyline(latLngs, { color: '#0066cc', weight: 1, opacity: 0.7 });
+            const style = getEntityStyle(entity, layer);
+            const polyline = L.polyline(latLngs, {
+              color: style.color,
+              weight: style.weight,
+              opacity: style.opacity,
+              dashArray: style.dashArray
+            });
             cadLayerGroup.addLayer(polyline);
             entityCount++;
           }
@@ -581,7 +656,13 @@ const renderCadFile = (cadData: any) => {
             .filter(([lat, lng]) => !isNaN(lat) && !isNaN(lng));
           
           if (latLngs.length > 1) {
-            const polyline = L.polyline(latLngs, { color: '#0066cc', weight: 1, opacity: 0.7 });
+            const style = getEntityStyle(entity, layer);
+            const polyline = L.polyline(latLngs, {
+              color: style.color,
+              weight: style.weight,
+              opacity: style.opacity,
+              dashArray: style.dashArray
+            });
             cadLayerGroup.addLayer(polyline);
             entityCount++;
           }
@@ -595,7 +676,14 @@ const renderCadFile = (cadData: any) => {
           const lng = isGeoCoordinate ? x : mapCenter.lng + (x - cadCenterX) * scale;
           
           if (!isNaN(lat) && !isNaN(lng)) {
-            const circle = L.circleMarker([lat, lng], { radius: 3, fillColor: '#00ff00', color: '#333', weight: 1, fillOpacity: 1 });
+            const style = getEntityStyle(entity, layer);
+            const circle = L.circleMarker([lat, lng], {
+              radius: 3,
+              fillColor: style.color,
+              color: style.color,
+              weight: style.weight,
+              fillOpacity: style.opacity
+            });
             cadLayerGroup.addLayer(circle);
             entityCount++;
           }
@@ -609,7 +697,14 @@ const renderCadFile = (cadData: any) => {
           const lng = isGeoCoordinate ? center.x : mapCenter.lng + (center.x - cadCenterX) * scale;
           
           if (!isNaN(lat) && !isNaN(lng)) {
-            const circle = L.circle([lat, lng], { radius: radius * scale * 111000, color: '#ff6600', weight: 1, opacity: 0.7 });
+            const style = getEntityStyle(entity, layer);
+            const circle = L.circle([lat, lng], {
+              radius: radius * scale * 111000,
+              color: style.color,
+              weight: style.weight,
+              opacity: style.opacity,
+              dashArray: style.dashArray
+            });
             cadLayerGroup.addLayer(circle);
             entityCount++;
           }
@@ -623,7 +718,14 @@ const renderCadFile = (cadData: any) => {
           const lng = isGeoCoordinate ? x : mapCenter.lng + (x - cadCenterX) * scale;
           
           if (!isNaN(lat) && !isNaN(lng)) {
-            const marker = L.circleMarker([lat, lng], { radius: 4, fillColor: '#ff00ff', color: '#333', weight: 1, fillOpacity: 0.8 });
+            const style = getEntityStyle(entity, layer);
+            const marker = L.circleMarker([lat, lng], {
+              radius: 4,
+              fillColor: style.color,
+              color: style.color,
+              weight: style.weight,
+              fillOpacity: style.opacity
+            });
             cadLayerGroup.addLayer(marker);
             entityCount++;
           }
