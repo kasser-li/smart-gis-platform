@@ -233,8 +233,14 @@
             <span v-else-if="typeof value === 'number' && key.includes('distance')">
               {{ value.toFixed(1) }} m
             </span>
+            <span v-else-if="typeof value === 'number' && key.includes('battery')">
+              {{ value.toFixed(2) }}%
+            </span>
             <span v-else-if="typeof value === 'number' && key.includes('progress')">
               <el-progress :percentage="value" stroke-width="12" />
+            </span>
+            <span v-else-if="typeof value === 'number'">
+              {{ value.toFixed(2) }}
             </span>
             <span v-else>{{ value }}</span>
           </el-descriptions-item>
@@ -342,7 +348,7 @@ import {
   DataLine,
   Location
 } from '@element-plus/icons-vue';
-import { ref, reactive, computed, onMounted, onUnmounted } from 'vue';
+import { ref, reactive, computed, onMounted, onUnmounted, watch } from 'vue';
 import L from 'leaflet';
 import { ElMessage, ElMessageBox } from 'element-plus';
 
@@ -583,6 +589,17 @@ onMounted(() => {
   savedRoutes.value.forEach(route => {
     renderRoute(route, false);
   });
+  
+  // 监听工具切换，确保路径始终显示
+  watch(activeTool, (newTool) => {
+    if (newTool === 'monitor' || newTool === 'task') {
+      // 重新渲染所有路径
+      pathLayerGroup.clearLayers();
+      savedRoutes.value.forEach(route => {
+        renderRoute(route, false);
+      });
+    }
+  });
 
   // 地图点击事件
   map.on('click', handleMapClick);
@@ -763,8 +780,13 @@ const renderRoute = (route: any, highlight: boolean = false) => {
 
 // 选择路径
 const selectRoute = (route: any) => {
+  // 不清空所有路径，只重新渲染以更新高亮状态
   pathLayerGroup.clearLayers();
-  renderRoute(route, true);
+  
+  // 渲染所有路径
+  savedRoutes.value.forEach(r => {
+    renderRoute(r, r.id === route.id);
+  });
   
   // 调整视图到路径范围
   if (route.points.length > 0) {
@@ -1144,6 +1166,7 @@ const resetSimulation = () => {
   pathLayerGroup.clearLayers();
   savedRoutes.value.forEach(route => renderRoute(route, false));
   renderAGVs();
+  ElMessage.success('模拟已重置');
   ElMessage.success('模拟已重置');
 };
 
