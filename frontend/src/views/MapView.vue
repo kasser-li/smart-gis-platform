@@ -19,6 +19,9 @@
         </el-button-group>
       </div>
       <div class="toolbar-right">
+        <el-button @click="$router.push('/agv')">
+          <el-icon><Van /></el-icon> AGV 演示
+        </el-button>
         <el-button @click="showLayerPanel = !showLayerPanel">
           <el-icon><Layers /></el-icon> 图层
         </el-button>
@@ -136,6 +139,9 @@ import { ref, onMounted, reactive } from 'vue';
 import L from 'leaflet';
 import { ElMessage } from 'element-plus';
 import axios from 'axios';
+import { useRouter } from 'vue-router';
+
+const router = useRouter();
 
 // 工具状态
 const activeTool = ref<'marker' | 'cad' | 'measure'>('marker');
