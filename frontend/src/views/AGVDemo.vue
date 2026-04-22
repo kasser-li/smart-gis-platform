@@ -216,8 +216,45 @@
       </template>
     </el-dialog>
 
+    <!-- 地图元素信息面板（固定显示） -->
+    <div v-if="selectedElement" class="element-info-panel">
+      <el-card>
+        <template #header>
+          <div class="card-header">
+            <span>{{ selectedElement.title }}</span>
+            <el-button size="small" @click="selectedElement = null">关闭</el-button>
+          </div>
+        </template>
+        <el-descriptions :column="1" border>
+          <el-descriptions-item v-for="(value, key) in selectedElement.info" :key="key" :label="formatLabel(key)">
+            <span v-if="typeof value === 'number' && (key.includes('lat') || key.includes('lng'))">
+              {{ value.toFixed(6) }}
+            </span>
+            <span v-else-if="typeof value === 'number' && key.includes('distance')">
+              {{ value.toFixed(1) }} m
+            </span>
+            <span v-else-if="typeof value === 'number' && key.includes('progress')">
+              <el-progress :percentage="value" stroke-width="12" />
+            </span>
+            <span v-else>{{ value }}</span>
+          </el-descriptions-item>
+        </el-descriptions>
+        <div v-if="selectedElement.actions" class="element-actions">
+          <el-button 
+            v-for="(action, index) in selectedElement.actions" 
+            :key="index" 
+            size="small" 
+            :type="action.type || ''" 
+            @click="action.handler"
+          >
+            {{ action.label }}
+          </el-button>
+        </div>
+      </el-card>
+    </div>
+
     <!-- AGV 详情面板 -->
-    <div v-if="selectedAGV" class="agv-detail-panel">
+    <div v-if="selectedAGV && !selectedElement" class="agv-detail-panel">
       <el-card>
         <template #header>
           <div class="card-header">
@@ -314,6 +351,7 @@ const activeTool = ref<'monitor' | 'route' | 'task'>('monitor');
 const isSimulating = ref(false);
 const showTaskDialog = ref(false);
 const selectedAGV = ref<any>(null);
+const selectedElement = ref<any>(null); // 当前选中的地图元素
 
 // 路径规划状态
 const isDrawingRoute = ref(false);
@@ -697,7 +735,29 @@ const renderRoute = (route: any, highlight: boolean = false) => {
     dashArray: highlight ? undefined : '10, 10'
   });
   
-  polyline.bindPopup(`<strong>${route.name}</strong><br>距离：${route.distance.toFixed(1)}m`);
+  // 计算路径中心点用于显示信息
+  const centerPoint = route.points[Math.floor(route.points.length / 2)];
+  
+  polyline.on('click', (e: L.LeafletMouseEvent) => {
+    selectedElement.value = {
+      title: route.name,
+      info: {
+        name: route.name,
+        id: route.id,
+        points: route.points.length,
+        distance: route.distance,
+        estimatedTime: (route.distance / 1.2).toFixed(0),
+        position: centerPoint
+      },
+      actions: [
+        { label: '📍 加载路径', type: 'primary', handler: () => loadRoute(route) },
+        { label: '🗑️ 删除路径', type: 'danger', handler: () => deleteRoute(route.id) }
+      ]
+    };
+    // 阻止事件冒泡
+    e.originalEvent.stopPropagation();
+  });
+  
   pathLayerGroup.addLayer(polyline);
 };
 
@@ -711,6 +771,21 @@ const selectRoute = (route: any) => {
     const bounds = L.latLngBounds(route.points.map((p: any) => [p.lat, p.lng]));
     map?.fitBounds(bounds, { padding: [50, 50] });
   }
+  
+  // 显示路径信息
+  selectedElement.value = {
+    title: route.name,
+    info: {
+      name: route.name,
+      id: route.id,
+      points: route.points.length,
+      distance: route.distance,
+      estimatedTime: (route.distance / 1.2).toFixed(0)
+    },
+    actions: [
+      { label: '🗑️ 删除路径', type: 'danger', handler: () => deleteRoute(route.id) }
+    ]
+  };
   
   ElMessage.success(`已加载路径：${route.name}`);
 };
@@ -745,22 +820,57 @@ const calculateRouteTime = (route: any) => {
   return route.distance / avgSpeed;
 };
 
+// 格式化标签
+const formatLabel = (key: string) => {
+  const labels: Record<string, string> = {
+    id: '编号',
+    name: '名称',
+    status: '状态',
+    battery: '电量',
+    load: '负载',
+    speed: '速度',
+    position: '位置',
+    currentRoute: '当前路径',
+    routeProgress: '路径进度',
+    currentTask: '当前任务',
+    points: '路径点数',
+    distance: '总距离',
+    estimatedTime: '预计时间',
+    type: '类型'
+  };
+  return labels[key] || key;
+};
+
 // 渲染 AGV
 const renderAGVs = () => {
   agvLayerGroup.clearLayers();
   
   agvs.value.forEach(agv => {
     const marker = L.marker([agv.position.lat, agv.position.lng], { icon: agvIcon });
-    marker.bindPopup(`
-      <strong>AGV-${agv.id}</strong><br>
-      状态：${agv.status}<br>
-      电量：${agv.battery}%<br>
-      负载：${agv.load}kg<br>
-      速度：${agv.speed}m/s<br>
-      路径：${agv.currentRoute || '无'}<br>
-      进度：${agv.routeProgress || 0}%<br>
-      任务：${agv.currentTask || '空闲'}
-    `);
+    
+    // 点击事件 - 显示详细信息面板
+    marker.on('click', () => {
+      selectedElement.value = {
+        title: `AGV-${agv.id} 详情`,
+        info: {
+          id: agv.id,
+          status: agv.status,
+          battery: agv.battery,
+          load: `${agv.load} kg / ${agv.maxLoad} kg`,
+          speed: `${agv.speed} m/s`,
+          position: agv.position,
+          currentRoute: agv.currentRoute || '无',
+          routeProgress: agv.routeProgress || 0,
+          currentTask: agv.currentTask || '空闲'
+        },
+        actions: [
+          { label: '🗺️ 分配路径', type: '', handler: () => assignRoute(agv) },
+          { label: '⏸️ 暂停', type: 'warning', handler: () => stopAGV(agv.id) },
+          { label: '🚨 急停', type: 'danger', handler: () => emergencyStop(agv.id) }
+        ]
+      };
+    });
+    
     agvLayerGroup.addLayer(marker);
   });
 };
@@ -771,7 +881,19 @@ const renderWaypoints = () => {
   
   waypoints.value.forEach(wp => {
     const marker = L.marker([wp.position.lat, wp.position.lng]);
-    marker.bindPopup(`<strong>${wp.name}</strong><br>ID: ${wp.id}`);
+    
+    marker.on('click', () => {
+      selectedElement.value = {
+        title: wp.name,
+        info: {
+          id: wp.id,
+          name: wp.name,
+          position: wp.position,
+          type: '工作站'
+        }
+      };
+    });
+    
     waypointLayerGroup.addLayer(marker);
   });
 };
@@ -782,7 +904,23 @@ const renderChargingStations = () => {
   
   chargingStations.value.forEach(cs => {
     const marker = L.marker([cs.position.lat, cs.position.lng]);
-    marker.bindPopup(`<strong>${cs.name}</strong><br>状态：${cs.status}`);
+    
+    marker.on('click', () => {
+      selectedElement.value = {
+        title: cs.name,
+        info: {
+          id: cs.id,
+          name: cs.name,
+          position: cs.position,
+          status: cs.status,
+          type: '充电站'
+        },
+        actions: [
+          { label: '🔋 设为目的地', type: 'primary', handler: () => ElMessage.info(`已设置${cs.name}为目的地`) }
+        ]
+      };
+    });
+    
     chargingLayerGroup.addLayer(marker);
   });
 };
@@ -1183,6 +1321,21 @@ onUnmounted(() => {
   margin-top: 16px;
   display: flex;
   gap: 8px;
+}
+
+.element-info-panel {
+  position: absolute;
+  bottom: 80px;
+  right: 20px;
+  width: 400px;
+  z-index: 1000;
+}
+
+.element-actions {
+  margin-top: 16px;
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
 }
 
 .status-bar {
