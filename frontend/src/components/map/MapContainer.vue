@@ -28,7 +28,10 @@ let map: L.Map | null = null
 onMounted(() => {
   if (!containerRef.value) return
 
-  map = L.map(containerRef.value).setView(
+  map = L.map(containerRef.value, {
+    minZoom: 0,
+    maxZoom: 19
+  }).setView(
     props.center || [39.9042, 116.4074],
     props.zoom || 12
   )
