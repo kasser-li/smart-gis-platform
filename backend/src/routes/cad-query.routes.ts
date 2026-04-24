@@ -38,6 +38,11 @@ router.post('/query', async (req, res) => {
     // 解析 CAD 文件
     const cadFile = await cadService.parseDXF(filePath, filename);
     
+    if (!cadFile.metadata) {
+      res.status(500).json({ code: 500, message: 'CAD 文件元数据解析失败' });
+      return;
+    }
+    
     // 创建转换上下文
     const extents = cadFile.metadata.extents;
     const context = {

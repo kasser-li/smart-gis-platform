@@ -26,6 +26,8 @@ rules:
   - rules/10-backend.md
   - rules/20-frontend.md
   - rules/30-database.md
+  - rules/40-testing.md
+  - rules/50-security.md
 
 # 工作流
 workflows:

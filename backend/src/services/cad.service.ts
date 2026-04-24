@@ -7,57 +7,10 @@ import { logger } from '../utils/logger';
 import * as fs from 'fs';
 import * as path from 'path';
 import DxfParser from 'dxf-parser';
+import type { CADLayer, CADEntity, CADFile } from '../models/cad.model';
 
-export interface CADLayer {
-  name: string;
-  // 图层样式
-  style?: {
-    color?: number;           // 颜色
-    colorIndex?: number;      // AutoCAD 索引色
-    lineType?: string;        // 线型
-    lineWeight?: number;      // 线宽
-    transparency?: number;    // 透明度
-  };
-  // 兼容字段（保持向后兼容）
-  color: number;
-  visible: boolean;
-  entities: CADEntity[];
-}
-
-export interface CADEntity {
-  type: string;
-  layer: string;
-  geometry: any;
-  // 样式属性
-  style?: {
-    color?: number;           // 颜色 (RGB 或索引色)
-    colorIndex?: number;      // AutoCAD 索引色 (0-256)
-    lineType?: string;        // 线型 (CONTINUOUS, DASHED, DOT 等)
-    lineTypeScale?: number;   // 线型比例
-    lineWeight?: number;      // 线宽 (单位：0.01mm, -2=ByLayer, -1=ByBlock)
-    visible?: boolean;        // 可见性
-    thickness?: number;       // 厚度
-    transparency?: number;    // 透明度 (0-100)
-  };
-  // 原始属性（保留所有 dxf-parser 返回的属性）
-  properties?: Record<string, any>;
-}
-
-export interface CADFile {
-  filename: string;
-  layers: CADLayer[];
-  metadata: {
-    version: string;
-    units: string;
-    extents: {
-      minX: number;
-      minY: number;
-      maxX: number;
-      maxY: number;
-    };
-  };
-  uploadTime: Date;
-}
+// 重新导出，保持向后兼容
+export type { CADLayer, CADEntity, CADFile } from '../models/cad.model';
 
 export class CADService {
   private dxfParser = new DxfParser();
@@ -96,6 +49,10 @@ export class CADService {
       // 使用专业的 dxf-parser 解析
       const dxfData = this.dxfParser.parseSync(content);
       
+      if (!dxfData) {
+        throw new Error('DXF 解析结果为空');
+      }
+      
       logger.info(`DXF 解析成功：${dxfData.entities?.length || 0} 个实体`);
       
       // 转换图层和实体
@@ -106,8 +63,8 @@ export class CADService {
         filename,
         layers,
         metadata: {
-          version: dxfData.header?.ACADVER || 'Unknown',
-          units: this.getUnits(dxfData.header?.MEASUREMENT),
+          version: typeof dxfData.header?.ACADVER === 'string' ? dxfData.header.ACADVER : 'Unknown',
+          units: this.getUnits(typeof dxfData.header?.MEASUREMENT === 'number' ? dxfData.header.MEASUREMENT : 3),
           extents
         },
         uploadTime: new Date()
@@ -324,6 +281,114 @@ export class CADService {
       extents.maxX = Math.max(extents.maxX, entity.center.x + r);
       extents.maxY = Math.max(extents.maxY, entity.center.y + r);
     }
+  }
+
+  /**
+   * 上传文件（单文件上传）
+   */
+  async uploadFile(file: Express.Multer.File): Promise<CADFile> {
+    const filePath = file.path
+    const filename = file.filename
+    
+    // 解析 CAD 文件
+    const cadFile = await this.parseCAD(filePath, filename)
+    
+    // 保存解析结果到 JSON 文件
+    const jsonPath = path.join(path.dirname(filePath), `${filename}.json`)
+    fs.writeFileSync(jsonPath, JSON.stringify(cadFile, null, 2), 'utf-8')
+    
+    logger.info(`CAD 文件已保存：${filename}`)
+    return cadFile
+  }
+
+  /**
+   * 合并分片
+   */
+  async mergeChunks(chunkId: string, originalName: string, totalChunks: number): Promise<CADFile> {
+    const chunksDir = path.join(__dirname, '../../uploads/cad/chunks', chunkId)
+    const finalPath = path.join(__dirname, '../../uploads/cad', `${Date.now()}-${originalName}`)
+    
+    // 合并分片
+    const writeStream = fs.createWriteStream(finalPath)
+    for (let i = 0; i < totalChunks; i++) {
+      const chunkPath = path.join(chunksDir, `chunk-${i}-*`)
+      const files = fs.readdirSync(path.dirname(chunkPath)).filter(f => f.startsWith(`chunk-${i}-`))
+      if (files.length > 0) {
+        const chunkFile = path.join(path.dirname(chunkPath), files[0])
+        const data = fs.readFileSync(chunkFile)
+        writeStream.write(data)
+      }
+    }
+    writeStream.end()
+    
+    // 等待写入完成
+    await new Promise<void>((resolve, reject) => {
+      writeStream.on('finish', () => resolve())
+      writeStream.on('error', reject)
+    })
+    
+    // 解析合并后的文件
+    const filename = path.basename(finalPath)
+    const cadFile = await this.parseCAD(finalPath, filename)
+    
+    // 保存解析结果
+    const jsonPath = finalPath + '.json'
+    fs.writeFileSync(jsonPath, JSON.stringify(cadFile, null, 2), 'utf-8')
+    
+    // 清理分片
+    fs.rmSync(chunksDir, { recursive: true, force: true })
+    
+    logger.info(`分片合并完成：${originalName}`)
+    return cadFile
+  }
+
+  /**
+   * 获取支持的格式
+   */
+  getSupportedFormats(): { extensions: string[]; description: string } {
+    return {
+      extensions: ['.dxf', '.dwg'],
+      description: 'DXF (Drawing Exchange Format) 和 DWG (AutoCAD 原生格式)'
+    }
+  }
+
+  /**
+   * 获取 CAD 文件详情
+   */
+  async getDetails(filename: string): Promise<CADFile | null> {
+    const jsonPath = path.join(__dirname, '../../uploads/cad', `${filename}.json`)
+    
+    if (!fs.existsSync(jsonPath)) {
+      return null
+    }
+    
+    const content = fs.readFileSync(jsonPath, 'utf-8')
+    return JSON.parse(content) as CADFile
+  }
+
+  /**
+   * 切换图层可见性
+   */
+  async toggleLayerVisibility(filename: string, layerName: string, visible: boolean): Promise<boolean> {
+    const jsonPath = path.join(__dirname, '../../uploads/cad', `${filename}.json`)
+    
+    if (!fs.existsSync(jsonPath)) {
+      return false
+    }
+    
+    const content = fs.readFileSync(jsonPath, 'utf-8')
+    const cadFile: CADFile = JSON.parse(content)
+    
+    const layer = cadFile.layers.find(l => l.name === layerName)
+    if (!layer) {
+      return false
+    }
+    
+    layer.visible = visible
+    fs.writeFileSync(jsonPath, JSON.stringify(cadFile, null, 2), 'utf-8')
+    
+    logger.info(`图层 ${layerName} 可见性已更新为 ${visible}`)
+    return true
   }
 
   /**

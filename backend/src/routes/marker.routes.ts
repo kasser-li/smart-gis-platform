@@ -2,28 +2,30 @@
  * 标记点路由
  */
 
-import { Router } from 'express';
-import * as controller from '../controllers/marker.controller';
+import { Router } from 'express'
+import * as controller from '../controllers/marker.controller'
+import { validate } from '../middleware/validate'
+import { createMarkerSchema, updateMarkerSchema } from '../controllers/marker.controller'
 
-export const router = Router();
+export const router = Router()
 
 // 创建标记点
-router.post('/', controller.create);
+router.post('/', validate(createMarkerSchema), controller.create)
 
 // 获取所有标记点
-router.get('/', controller.findAll);
+router.get('/', controller.findAll)
 
 // 导出所有标记点
-router.get('/export', controller.exportAll);
+router.get('/export', controller.exportAll)
 
 // 批量导入标记点
-router.post('/batch', controller.batchImport);
+router.post('/batch', controller.batchImport)
 
 // 根据 ID 获取标记点
-router.get('/:id', controller.findById);
+router.get('/:id', controller.findById)
 
 // 更新标记点
-router.put('/:id', controller.update);
+router.put('/:id', validate(updateMarkerSchema), controller.update)
 
 // 删除标记点
-router.delete('/:id', controller.remove);
+router.delete('/:id', controller.remove)

@@ -2,346 +2,113 @@
  * CAD 图纸控制器
  */
 
-import { Request, Response } from 'express';
-import { cadService } from '../services/cad.service';
-import { cadFilterService } from '../services/cad-filter.service';
-import { logger } from '../utils/logger';
-import * as fs from 'fs';
-import * as path from 'path';
+import { Request, Response } from 'express'
+import * as fs from 'fs'
+import * as path from 'path'
+import { cadService } from '../services/cad.service'
+import { logger } from '../utils/logger'
+import { success, error } from '../utils/response'
 
-// 上传目录
-const UPLOAD_DIR = path.join(__dirname, '../../uploads/cad');
-
-// 确保上传目录存在
-if (!fs.existsSync(UPLOAD_DIR)) {
-  fs.mkdirSync(UPLOAD_DIR, { recursive: true });
+/**
+ * 上传 CAD 文件
+ */
+export async function upload(req: Request, res: Response): Promise<void> {
+  try {
+    if (!req.file) {
+      res.status(400).json(error(400, '请选择文件'))
+      return
+    }
+    
+    const result = await cadService.uploadFile(req.file)
+    res.status(201).json(success(result, '上传成功'))
+  } catch (err) {
+    logger.error('上传CAD文件失败:', err)
+    res.status(500).json(error(500, '上传失败'))
+  }
 }
 
 /**
- * 上传并解析 CAD 文件
- * POST /api/cad/upload
- */
-export const upload = async (req: Request, res: Response) => {
-  try {
-    // 检查文件
-    if (!req.file) {
-      res.status(400).json({
-        code: 400,
-        message: '请上传 DXF 文件'
-      });
-      return;
-    }
-
-    // 检查文件类型
-    const allowedTypes = ['.dxf', '.dwg'];
-    const ext = path.extname(req.file.originalname).toLowerCase();
-    if (!allowedTypes.includes(ext)) {
-      fs.unlinkSync(req.file.path);
-      res.status(400).json({
-        code: 400,
-        message: '仅支持 DXF/DWG 格式文件'
-      });
-      return;
-    }
-
-    // 解析文件（支持 DXF 和 DWG）
-    const cadFile = await cadService.parseCAD(req.file.path, req.file.originalname);
-
-    // 返回解析结果
-    res.json({
-      code: 200,
-      message: '解析成功',
-      data: {
-        filename: cadFile.filename,
-        layers: cadFile.layers.map(l => ({
-          name: l.name,
-          color: l.color,
-          visible: l.visible,
-          entityCount: l.entities.length,
-          entities: l.entities  // 返回完整的 entities 数组
-        })),
-        metadata: cadFile.metadata,
-        uploadTime: cadFile.uploadTime
-      }
-    });
-  } catch (error: any) {
-    logger.error('CAD 文件上传失败:', error);
-    
-    // 清理上传的文件
-    if (req.file?.path && fs.existsSync(req.file.path)) {
-      fs.unlinkSync(req.file.path);
-    }
-    
-    res.status(500).json({
-      code: 500,
-      message: error.message
-    });
-  }
-};
-
-/**
- * 获取 CAD 文件详情
- * GET /api/cad/:filename
- */
-export const getDetails = async (req: Request, res: Response) => {
-  try {
-    const { filename } = req.params;
-    const filePath = path.join(UPLOAD_DIR, filename);
-    
-    if (!fs.existsSync(filePath)) {
-      res.status(404).json({
-        code: 404,
-        message: '文件不存在'
-      });
-      return;
-    }
-
-    const cadFile = await cadService.parseCAD(filePath, filename);
-    
-    res.json({
-      code: 200,
-      message: '获取成功',
-      data: cadFile
-    });
-  } catch (error: any) {
-    logger.error('获取 CAD 文件详情失败:', error);
-    res.status(500).json({
-      code: 500,
-      message: error.message
-    });
-  }
-};
-
-/**
- * 切换图层可见性
- * POST /api/cad/:filename/layers/:layerName/visibility
- */
-export const toggleLayerVisibility = async (req: Request, res: Response) => {
-  try {
-    const { filename, layerName } = req.params;
-    const { visible } = req.body;
-    
-    // 这里应该更新数据库中的图层状态
-    // 简化实现，直接返回成功
-    
-    res.json({
-      code: 200,
-      message: `图层 ${layerName} 可见性已${visible ? '开启' : '关闭'}`
-    });
-  } catch (error: any) {
-    logger.error('切换图层可见性失败:', error);
-    res.status(500).json({
-      code: 500,
-      message: error.message
-    });
-  }
-};
-
-/**
- * 获取支持的格式
- * GET /api/cad/supported-formats
- */
-export const getSupportedFormats = async (req: Request, res: Response) => {
-  res.json({
-    code: 200,
-    message: '获取成功',
-    data: {
-      formats: [
-        { ext: '.dxf', name: 'DXF', description: 'AutoCAD DXF 格式' },
-        { ext: '.dwg', name: 'DWG', description: 'AutoCAD DWG 格式（需要额外库支持）' }
-      ],
-      maxFileSize: '50MB',
-      chunkSize: '5MB',
-      chunkUploadEnabled: true
-    }
-  });
-};
-
-/**
  * 上传分片
- * POST /api/cad/upload-chunk
  */
-export const uploadChunk = async (req: Request, res: Response) => {
+export async function uploadChunk(req: Request, res: Response): Promise<void> {
   try {
     if (!req.file) {
-      res.status(400).json({
-        code: 400,
-        message: '分片文件上传失败'
-      });
-      return;
+      res.status(400).json(error(400, '请选择文件分片'))
+      return
     }
-
-    const { chunkId, chunkIndex, totalChunks, filename } = req.body;
-    
-    logger.info(`分片上传成功：${chunkId}, 分片 ${chunkIndex}/${totalChunks}`);
-    
-    res.json({
-      code: 200,
-      message: '分片上传成功',
-      data: {
-        chunkId,
-        chunkIndex,
-        uploaded: true
-      }
-    });
-  } catch (error: any) {
-    logger.error('分片上传失败:', error);
-    res.status(500).json({
-      code: 500,
-      message: error.message
-    });
+    res.json(success(null, '分片上传成功'))
+  } catch (err) {
+    logger.error('上传分片失败:', err)
+    res.status(500).json(error(500, '分片上传失败'))
   }
-};
+}
 
 /**
  * 合并分片
- * POST /api/cad/merge-chunks
  */
-export const mergeChunks = async (req: Request, res: Response) => {
+export async function mergeChunks(req: Request, res: Response): Promise<void> {
   try {
-    const { chunkId, filename, totalChunks, renderOptions } = req.body;
-    
-    // 调试日志
-    logger.info('=== 调试信息 ===');
-    logger.info(`cadService: ${cadService ? '已定义' : 'undefined'}`);
-    logger.info(`cadService.parseDXF: ${cadService?.parseDXF ? '已定义' : 'undefined'}`);
-    logger.info('================');
-    
-    // 使用绝对路径
-    const baseDir = path.join(__dirname, '../../uploads/cad');
-    const chunksDir = path.join(baseDir, 'chunks', chunkId);
-    const outputFile = path.join(baseDir, filename);
-
-    logger.info(`开始合并分片：${chunkId}, 文件：${filename}, 分片数：${totalChunks}`);
-    logger.info(`分片目录：${chunksDir}`);
-    
-    // 检查分片目录是否存在
-    if (!fs.existsSync(chunksDir)) {
-      logger.error(`分片目录不存在：${chunksDir}`);
-      res.status(400).json({
-        code: 400,
-        message: '分片目录不存在，可能已被清理'
-      });
-      return;
-    }
-
-    // 读取所有分片并按顺序合并
-    const chunks: string[] = [];
-    for (let i = 0; i < Number(totalChunks); i++) {
-      const chunkFiles = fs.readdirSync(chunksDir)
-        .filter(f => f.startsWith(`chunk-${i}-`))
-        .sort();
-      
-      if (chunkFiles.length === 0) {
-        logger.error(`缺少分片 ${i}`);
-        res.status(400).json({
-          code: 400,
-          message: `缺少分片 ${i}`
-        });
-        return;
-      }
-      
-      chunks.push(path.join(chunksDir, chunkFiles[0]));
-      logger.info(`找到分片 ${i}: ${chunkFiles[0]}`);
-    }
-
-    logger.info(`开始合并 ${chunks.length} 个分片到 ${outputFile}`);
-    
-    // 确保输出目录存在
-    if (!fs.existsSync(baseDir)) {
-      fs.mkdirSync(baseDir, { recursive: true });
+    const { chunkId, originalName, totalChunks } = req.body as {
+      chunkId: string
+      originalName: string
+      totalChunks: number
     }
     
-    // 合并分片
-    const writeStream = fs.createWriteStream(outputFile);
-    for (const chunkFile of chunks) {
-      const chunkData = fs.readFileSync(chunkFile);
-      writeStream.write(chunkData);
-    }
-    writeStream.end();
-
-    // 等待写入完成
-    await new Promise((resolve, reject) => {
-      writeStream.on('finish', resolve);
-      writeStream.on('error', (err) => {
-        logger.error('写入文件失败:', err);
-        reject(err);
-      });
-    });
-
-    logger.info(`分片合并完成：${outputFile}`);
-
-    // 删除分片目录
-    fs.rmSync(chunksDir, { recursive: true });
-    logger.info(`已清理分片目录：${chunksDir}`);
-
-    // 解析合并后的文件
-    logger.info(`开始解析 CAD 文件：${filename}`);
-    const cadFile = await cadService.parseCAD(outputFile, filename);
-    logger.info(`CAD 解析成功：${filename}`);
-    
-    // 应用 LOD 过滤（如果提供了 renderOptions）
-    let resultLayers = cadFile.layers;
-    let originalCount = cadFile.layers.reduce((sum, l) => sum + l.entities.length, 0);
-    let returnedCount = originalCount;
-    
-    if (renderOptions) {
-      const { zoom, bounds } = renderOptions;
-      logger.info(`应用 LOD 过滤：zoom=${zoom}`);
-      
-      // 创建转换上下文
-      const extents = cadFile.metadata.extents;
-      const context = {
-        mapCenter: bounds ? {
-          lat: (bounds.north + bounds.south) / 2,
-          lng: (bounds.east + bounds.west) / 2
-        } : { lat: 39.9042, lng: 116.4074 },
-        cadCenterX: (extents.minX + extents.maxX) / 2,
-        cadCenterY: (extents.minY + extents.maxY) / 2,
-        scale: 0.00001
-      };
-      
-      // 应用过滤
-      const filterResult = cadFilterService.applyFilters(
-        cadFile.layers,
-        zoom,
-        bounds,
-        context
-      );
-      
-      resultLayers = filterResult.layers;
-      returnedCount = filterResult.returned;
-      
-      logger.info(`LOD 过滤完成：原始=${originalCount}, 返回=${returnedCount}`);
-    }
-
-    res.json({
-      code: 200,
-      message: '分片合并成功',
-      data: {
-        filename,
-        layers: resultLayers.map((l: any) => ({
-          name: l.name,
-          color: l.color,
-          visible: l.visible,
-          entityCount: l.entities.length,
-          entities: l.entities  // 返回完整的 entities 数组
-        })),
-        metadata: {
-          ...cadFile.metadata,
-          totalEntities: originalCount,
-          returnedEntities: returnedCount,
-          simplified: renderOptions ? renderOptions.zoom < 16 : false,
-          zoomLevel: renderOptions?.zoom
-        },
-        uploadTime: cadFile.uploadTime
-      }
-    });
-  } catch (error: any) {
-    logger.error('合并分片失败:', error);
-    res.status(500).json({
-      code: 500,
-      message: error.message
-    });
+    const result = await cadService.mergeChunks(chunkId, originalName, totalChunks)
+    res.status(201).json(success(result, '合并成功'))
+  } catch (err) {
+    logger.error('合并分片失败:', err)
+    res.status(500).json(error(500, '合并失败'))
   }
-};
+}
+
+/**
+ * 获取支持的格式
+ */
+export async function getSupportedFormats(req: Request, res: Response): Promise<void> {
+  try {
+    const formats = cadService.getSupportedFormats()
+    res.json(success(formats))
+  } catch (err) {
+    logger.error('获取支持格式失败:', err)
+    res.status(500).json(error(500, '获取失败'))
+  }
+}
+
+/**
+ * 获取 CAD 文件详情
+ */
+export async function getDetails(req: Request, res: Response): Promise<void> {
+  try {
+    const { filename } = req.params
+    const details = await cadService.getDetails(filename)
+    if (!details) {
+      res.status(404).json(error(404, '文件不存在'))
+      return
+    }
+    res.json(success(details))
+  } catch (err) {
+    logger.error('获取CAD文件详情失败:', err)
+    res.status(500).json(error(500, '获取失败'))
+  }
+}
+
+/**
+ * 切换图层可见性
+ */
+export async function toggleLayerVisibility(req: Request, res: Response): Promise<void> {
+  try {
+    const { filename, layerName } = req.params
+    const { visible } = req.body as { visible: boolean }
+    
+    const updated = await cadService.toggleLayerVisibility(filename, layerName, visible)
+    if (!updated) {
+      res.status(404).json(error(404, '文件或图层不存在'))
+      return
+    }
+    res.json(success(null, '图层可见性已更新'))
+  } catch (err) {
+    logger.error('切换图层可见性失败:', err)
+    res.status(500).json(error(500, '操作失败'))
+  }
+}
