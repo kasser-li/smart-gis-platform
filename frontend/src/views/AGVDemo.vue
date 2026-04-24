@@ -454,10 +454,10 @@ const endPointIcon = L.divIcon({
 
 // AGV 车队数据
 const agvs = ref<any[]>([
-  { id: '001', status: '工作中', battery: 78, load: 150, maxLoad: 500, speed: 1.2, position: { lat: 39.9042, lng: 116.4074 }, currentTask: 'T001', currentRoute: '路线 1', routeProgress: 45 },
+  { id: '001', status: '工作中', battery: 78, load: 150, maxLoad: 500, speed: 1.2, position: { lat: 39.9042, lng: 116.4074 }, currentTask: 'T001', currentRoute: 'R1', routeProgress: 45 },
   { id: '002', status: '空闲', battery: 92, load: 0, maxLoad: 500, speed: 0, position: { lat: 39.9052, lng: 116.4084 }, currentTask: null, currentRoute: null, routeProgress: 0 },
   { id: '003', status: '充电中', battery: 45, load: 0, maxLoad: 500, speed: 0, position: { lat: 39.9032, lng: 116.4064 }, currentTask: null, currentRoute: null, routeProgress: 0 },
-  { id: '004', status: '工作中', battery: 65, load: 280, maxLoad: 500, speed: 1.0, position: { lat: 39.9062, lng: 116.4094 }, currentTask: 'T002', currentRoute: '路线 2', routeProgress: 72 },
+  { id: '004', status: '工作中', battery: 65, load: 280, maxLoad: 500, speed: 1.0, position: { lat: 39.9062, lng: 116.4094 }, currentTask: 'T002', currentRoute: 'R2', routeProgress: 72 },
   { id: '005', status: '空闲', battery: 88, load: 0, maxLoad: 500, speed: 0, position: { lat: 39.9022, lng: 116.4054 }, currentTask: null, currentRoute: null, routeProgress: 0 },
 ]);
 
@@ -920,12 +920,31 @@ const renderWaypoints = () => {
   });
 };
 
+// 充电站图标
+const chargingStationIcon = L.divIcon({
+  className: 'charging-station-marker',
+  html: `<div style="
+    width: 24px;
+    height: 24px;
+    background: #67C23A;
+    border: 3px solid white;
+    border-radius: 50%;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.3);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 14px;
+  ">🔋</div>`,
+  iconSize: [24, 24],
+  iconAnchor: [12, 12]
+});
+
 // 渲染充电站
 const renderChargingStations = () => {
   chargingLayerGroup.clearLayers();
   
   chargingStations.value.forEach(cs => {
-    const marker = L.marker([cs.position.lat, cs.position.lng]);
+    const marker = L.marker([cs.position.lat, cs.position.lng], { icon: chargingStationIcon });
     
     marker.on('click', () => {
       selectedElement.value = {
@@ -1058,7 +1077,7 @@ const createTask = () => {
   tasks.value.push({
     id: newTaskId,
     type: newTask.type,
-    status: '等待',
+    status: '进行中',
     agvId: agvId,
     route: { id: route.id, name: route.name },
     progress: 0,
@@ -1070,7 +1089,7 @@ const createTask = () => {
   if (agv) {
     agv.status = '工作中';
     agv.currentTask = newTaskId;
-    agv.currentRoute = route.name;
+    agv.currentRoute = route.id;
     agv.routeProgress = 0;
   }
   
@@ -1088,7 +1107,7 @@ const assignRoute = (agv: any) => {
   }).then(({ value }) => {
     const route = savedRoutes.value.find(r => r.id === value);
     if (route) {
-      agv.currentRoute = route.name;
+      agv.currentRoute = route.id;
       agv.routeProgress = 0;
       renderAGVs();
       ElMessage.success(`AGV-${agv.id} 已分配路径：${route.name}`);
@@ -1153,7 +1172,7 @@ const resetSimulation = () => {
     agv.load = agv.status === '工作中' ? Math.random() * 300 : 0;
     agv.speed = agv.status === '工作中' ? 0.8 + Math.random() * 0.5 : 0;
     agv.currentTask = agv.status === '工作中' ? `T${String(index + 1).padStart(3, '0')}` : null;
-    agv.currentRoute = agv.status === '工作中' ? `路线${index % 3 + 1}` : null;
+    agv.currentRoute = agv.status === '工作中' ? `R${(index % 3) + 1}` : null;
     agv.routeProgress = agv.status === '工作中' ? Math.random() * 100 : 0;
   });
   
@@ -1174,12 +1193,12 @@ const resetSimulation = () => {
 const simulateAGVMovement = () => {
   agvs.value.forEach(agv => {
     if (agv.status === '工作中' && agv.currentRoute) {
-      // 找到对应的路径
-      const route = savedRoutes.value.find(r => r.name === agv.currentRoute);
+      // 找到对应的路径（用 ID 匹配）
+      const route = savedRoutes.value.find(r => r.id === agv.currentRoute);
       if (route && route.points.length >= 2) {
-        // 增加进度
+        // 增加进度（保留 2 位小数）
         const speedIncrement = agv.speed * 0.1 / route.distance * 100; // 每 100ms 的进度增量
-        agv.routeProgress = Math.min(100, agv.routeProgress + speedIncrement);
+        agv.routeProgress = Math.round(Math.min(100, agv.routeProgress + speedIncrement) * 100) / 100;
         
         // 计算当前位置
         const progress = agv.routeProgress / 100;
@@ -1213,8 +1232,8 @@ const simulateAGVMovement = () => {
           ElMessage.success(`AGV-${agv.id} 已到达目的地`);
         }
         
-        // 电量消耗
-        agv.battery = Math.max(0, agv.battery - 0.05);
+        // 电量消耗（保留 2 位小数）
+        agv.battery = Math.round(Math.max(0, agv.battery - 0.05) * 100) / 100;
         
         // 低电量自动充电
         if (agv.battery < 15 && agv.status === '工作中') {
@@ -1225,8 +1244,8 @@ const simulateAGVMovement = () => {
         }
       }
     } else if (agv.status === '充电中') {
-      // 充电
-      agv.battery = Math.min(100, agv.battery + 0.2);
+      // 充电（保留 2 位小数）
+      agv.battery = Math.round(Math.min(100, agv.battery + 0.2) * 100) / 100;
       if (agv.battery >= 100) {
         agv.status = '空闲';
         ElMessage.success(`AGV-${agv.id} 充电完成`);
@@ -1241,7 +1260,7 @@ const simulateAGVMovement = () => {
     if (task.status === '进行中' && task.agvId) {
       const agv = agvs.value.find(a => a.id === task.agvId);
       if (agv) {
-        task.progress = agv.routeProgress || 0;
+        task.progress = Math.round((agv.routeProgress || 0) * 100) / 100;
       }
     }
   });
