@@ -98,7 +98,7 @@
               {{ row.load }}kg
             </template>
           </el-table-column>
-          <el-table-column label="位置" width="180">
+          <el-table-column label="位置" width="180" :cell-style="{ height: '100px' }">
             <template #default="{ row }">
               <div class="coord-two-line">
                 <div>纬度: {{ row.position.lat.toFixed(4) }}</div>
@@ -1337,8 +1337,8 @@ onUnmounted(() => {
   top: 70px;
   left: 20px;
   width: 500px;
-  height: 100px;
   z-index: 1000;
+  max-height: calc(100% - 150px);
   overflow-y: auto;
 }
 
@@ -1351,8 +1351,8 @@ onUnmounted(() => {
   top: 70px;
   left: 20px;
   width: 550px;
-  height: 100px;
   z-index: 1000;
+  max-height: calc(100% - 150px);
   overflow-y: auto;
 }
 
@@ -1361,8 +1361,8 @@ onUnmounted(() => {
   top: 70px;
   right: 20px;
   width: 750px;
-  height: 100px;
   z-index: 1000;
+  max-height: calc(100% - 150px);
   overflow-y: auto;
 }
 
@@ -1371,9 +1371,7 @@ onUnmounted(() => {
   bottom: 80px;
   left: 20px;
   width: 400px;
-  height: 100px;
   z-index: 1000;
-  overflow-y: auto;
 }
 
 .agv-actions {
@@ -1387,9 +1385,7 @@ onUnmounted(() => {
   bottom: 80px;
   right: 20px;
   width: 400px;
-  height: 100px;
   z-index: 1000;
-  overflow-y: auto;
 }
 
 .element-actions {
