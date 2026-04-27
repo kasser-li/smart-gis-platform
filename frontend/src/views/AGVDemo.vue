@@ -42,7 +42,7 @@
             </el-button>
           </div>
         </template>
-        <el-table :data="savedRoutes" style="width: 100%" max-height="500" highlight-current-row @current-change="selectRoute">
+        <el-table :data="savedRoutes" style="width: 100%" height="450" highlight-current-row @current-change="selectRoute">
           <el-table-column prop="name" label="名称" width="120" />
           <el-table-column prop="points.length" label="点数" width="60" />
           <el-table-column prop="distance" label="距离" width="80">
@@ -81,16 +81,16 @@
             </el-button>
           </div>
         </template>
-        <el-table :data="agvs" style="width: 100%" max-height="500" highlight-current-row @current-change="selectAGV">
+        <el-table :data="agvs" style="width: 100%" height="450" highlight-current-row @current-change="selectAGV">
           <el-table-column prop="id" label="编号" width="80" />
           <el-table-column label="状态" width="80">
             <template #default="{ row }">
               <el-tag :type="getStatusType(row.status)" size="small">{{ row.status }}</el-tag>
             </template>
           </el-table-column>
-          <el-table-column label="电量" width="100">
+          <el-table-column label="电量" width="160">
             <template #default="{ row }">
-              <el-progress :percentage="row.battery" :status="row.battery < 20 ? 'exception' : ''" stroke-width="12" />
+              <el-progress :percentage="Number(row.battery.toFixed(4))" :format="(val: number) => val.toFixed(4) + '%'" :status="row.battery < 20 ? 'exception' : ''" stroke-width="12" />
             </template>
           </el-table-column>
           <el-table-column label="负载" width="80">
@@ -98,9 +98,12 @@
               {{ row.load }}kg
             </template>
           </el-table-column>
-          <el-table-column label="位置">
+          <el-table-column label="位置" width="180">
             <template #default="{ row }">
-              {{ row.position.lat.toFixed(4) }}, {{ row.position.lng.toFixed(4) }}
+              <div class="coord-two-line">
+                <div>纬度: {{ row.position.lat.toFixed(4) }}</div>
+                <div>经度: {{ row.position.lng.toFixed(4) }}</div>
+              </div>
             </template>
           </el-table-column>
         </el-table>
@@ -118,7 +121,7 @@
             </el-button>
           </div>
         </template>
-        <el-table :data="tasks" style="width: 100%" max-height="600">
+        <el-table :data="tasks" style="width: 100%" height="550">
           <el-table-column prop="id" label="任务 ID" width="100" />
           <el-table-column prop="type" label="类型" width="80">
             <template #default="{ row }">
@@ -136,9 +139,9 @@
               {{ row.route?.name || '无' }}
             </template>
           </el-table-column>
-          <el-table-column label="进度" width="100">
+          <el-table-column label="进度" width="160">
             <template #default="{ row }">
-              <el-progress :percentage="row.progress || 0" :status="row.status === '已完成' ? 'success' : ''" stroke-width="12" />
+              <el-progress :percentage="Number((row.progress || 0).toFixed(4))" :format="(val: number) => val.toFixed(4) + '%'" :status="row.status === '已完成' ? 'success' : ''" stroke-width="12" />
             </template>
           </el-table-column>
           <el-table-column label="操作" width="150">
@@ -227,7 +230,16 @@
         </template>
         <el-descriptions :column="1" border>
           <el-descriptions-item v-for="(value, key) in selectedElement.info" :key="key" :label="formatLabel(key)">
-            <span v-if="typeof value === 'number' && (key.includes('lat') || key.includes('lng'))">
+            <span v-if="key === 'position' && typeof value === 'object' && value !== null">
+              <div class="coord-two-line">
+                <div>纬度: {{ value.lat.toFixed(6) }}</div>
+                <div>经度: {{ value.lng.toFixed(6) }}</div>
+              </div>
+            </span>
+            <span v-else-if="typeof value === 'number' && key.includes('lat')">
+              {{ value.toFixed(6) }}
+            </span>
+            <span v-else-if="typeof value === 'number' && key.includes('lng')">
               {{ value.toFixed(6) }}
             </span>
             <span v-else-if="typeof value === 'number' && key.includes('distance')">
@@ -237,7 +249,7 @@
               {{ value.toFixed(2) }}%
             </span>
             <span v-else-if="typeof value === 'number' && key.includes('progress')">
-              <el-progress :percentage="value" stroke-width="12" />
+              <el-progress :percentage="Number(value.toFixed(4))" :format="(val: number) => val.toFixed(4) + '%'" stroke-width="12" />
             </span>
             <span v-else-if="typeof value === 'number'">
               {{ value.toFixed(2) }}
@@ -273,16 +285,19 @@
             <el-tag :type="getStatusType(selectedAGV.status)">{{ selectedAGV.status }}</el-tag>
           </el-descriptions-item>
           <el-descriptions-item label="电量">
-            <el-progress :percentage="selectedAGV.battery" :status="selectedAGV.battery < 20 ? 'exception' : ''" />
+            <el-progress :percentage="Number(selectedAGV.battery.toFixed(4))" :format="(val: number) => val.toFixed(4) + '%'" :status="selectedAGV.battery < 20 ? 'exception' : ''" />
           </el-descriptions-item>
           <el-descriptions-item label="速度">{{ selectedAGV.speed }} m/s</el-descriptions-item>
           <el-descriptions-item label="负载">{{ selectedAGV.load }} kg / {{ selectedAGV.maxLoad }} kg</el-descriptions-item>
           <el-descriptions-item label="当前位置">
-            {{ selectedAGV.position.lat.toFixed(6) }}, {{ selectedAGV.position.lng.toFixed(6) }}
+            <div class="coord-two-line">
+              <div>纬度: {{ selectedAGV.position.lat.toFixed(6) }}</div>
+              <div>经度: {{ selectedAGV.position.lng.toFixed(6) }}</div>
+            </div>
           </el-descriptions-item>
           <el-descriptions-item label="当前路径">{{ selectedAGV.currentRoute || '无' }}</el-descriptions-item>
           <el-descriptions-item label="路径进度">
-            <el-progress :percentage="selectedAGV.routeProgress || 0" stroke-width="12" />
+            <el-progress :percentage="Number((selectedAGV.routeProgress || 0).toFixed(4))" :format="(val: number) => val.toFixed(4) + '%'" stroke-width="12" />
           </el-descriptions-item>
           <el-descriptions-item label="当前任务">{{ selectedAGV.currentTask || '空闲' }}</el-descriptions-item>
         </el-descriptions>
@@ -1322,8 +1337,8 @@ onUnmounted(() => {
   top: 70px;
   left: 20px;
   width: 500px;
+  height: 100px;
   z-index: 1000;
-  max-height: calc(100% - 150px);
   overflow-y: auto;
 }
 
@@ -1336,8 +1351,8 @@ onUnmounted(() => {
   top: 70px;
   left: 20px;
   width: 550px;
+  height: 100px;
   z-index: 1000;
-  max-height: calc(100% - 150px);
   overflow-y: auto;
 }
 
@@ -1346,8 +1361,8 @@ onUnmounted(() => {
   top: 70px;
   right: 20px;
   width: 750px;
+  height: 100px;
   z-index: 1000;
-  max-height: calc(100% - 150px);
   overflow-y: auto;
 }
 
@@ -1356,7 +1371,9 @@ onUnmounted(() => {
   bottom: 80px;
   left: 20px;
   width: 400px;
+  height: 100px;
   z-index: 1000;
+  overflow-y: auto;
 }
 
 .agv-actions {
@@ -1370,7 +1387,9 @@ onUnmounted(() => {
   bottom: 80px;
   right: 20px;
   width: 400px;
+  height: 100px;
   z-index: 1000;
+  overflow-y: auto;
 }
 
 .element-actions {
@@ -1444,5 +1463,11 @@ onUnmounted(() => {
 .route-preview-empty {
   color: #999;
   font-style: italic;
+}
+
+.coord-two-line {
+  line-height: 1.6;
+  font-size: 13px;
+  color: #606266;
 }
 </style>
