@@ -881,11 +881,23 @@ const formatLabel = (key: string) => {
   return labels[key] || key;
 };
 
+// 计算 AGV 到达充电站所需的电量
+const calculateBatteryNeeded = (agv: any, station: any) => {
+  const distance = calculateDistance(agv.position, station.position);
+  // 假设每米消耗 0.001% 电量（根据实际速度调整）
+  const batteryNeeded = distance * 0.001;
+  return Math.min(100, batteryNeeded);
+};
+
 // 查找最近的空闲充电站
 const findNearestChargingStation = (agv: any) => {
+  // 优先找空闲充电站
+  let freeStations = chargingStations.value.filter(cs => cs.status === '空闲');
+  let searchList = freeStations.length > 0 ? freeStations : chargingStations.value;
+  
   let nearest: any = null;
   let minDist = Infinity;
-  chargingStations.value.forEach(cs => {
+  searchList.forEach(cs => {
     const dist = calculateDistance(agv.position, cs.position);
     if (dist < minDist) {
       minDist = dist;
@@ -1232,7 +1244,6 @@ const resetSimulation = () => {
   savedRoutes.value.forEach(route => renderRoute(route, false));
   renderAGVs();
   ElMessage.success('模拟已重置');
-  ElMessage.success('模拟已重置');
 };
 
 // 模拟 AGV 沿路径移动
@@ -1281,19 +1292,26 @@ const simulateAGVMovement = () => {
         // 电量消耗（保留 2 位小数）
         agv.battery = Math.round(Math.max(0, agv.battery - 0.05) * 100) / 100;
         
-        // 低电量自动充电
-        if (agv.battery < 15 && agv.status === '工作中') {
-          agv.status = '充电中';
-          agv.currentRoute = null;
-          agv.speed = 0;
-          // 移动到最近充电站
-          const nearestStation = findNearestChargingStation(agv);
-          if (nearestStation) {
+        // 低电量自动充电（实时计算所需电量）
+        const nearestStation = findNearestChargingStation(agv);
+        if (nearestStation) {
+          const batteryNeeded = calculateBatteryNeeded(agv, nearestStation);
+          // 当前电量低于所需电量 + 5% 安全余量时，触发充电
+          if (agv.battery < batteryNeeded + 5) {
+            agv.status = '充电中';
+            agv.currentRoute = null;
+            agv.routeProgress = 0;
+            agv.speed = 0;
+            // 移动到充电站附近（偏移 0.0002 度，约 20 米）
+            const offset = 0.0002;
+            agv.position = {
+              lat: nearestStation.position.lat + offset,
+              lng: nearestStation.position.lng + offset
+            };
             agv.targetChargingStation = nearestStation.id;
-            agv.position = { ...nearestStation.position };
-            chargingStations.value.find(cs => cs.id === nearestStation.id) && (chargingStations.value.find(cs => cs.id === nearestStation.id)!.status = '占用');
+            nearestStation.status = '占用';
+            ElMessage.warning(`AGV-${agv.id} 电量不足，前往充电站 ${nearestStation.name}`);
           }
-          ElMessage.warning(`AGV-${agv.id} 电量低，自动前往充电`);
         }
       }
     } else if (agv.status === '充电中') {

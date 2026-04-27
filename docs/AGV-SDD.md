@@ -66,6 +66,7 @@ interface AGV {
   currentTask: string | null;  // 当前任务 ID
   currentRoute: string | null; // 当前路径 ID (R1, R2...)
   routeProgress: number;   // 路径进度 (0-100)
+  targetChargingStation: string | null; // 占用的充电站 ID
 }
 ```
 
@@ -155,8 +156,13 @@ simulateAGVMovement() {
   //    - AGV 状态 → 空闲
   //    - 关联任务 → 已完成
   // 6. 电量消耗：每 100ms -0.05%
-  // 7. 低电量 (<15%)：自动转为充电中
+  // 7. 低电量 (<15%)：自动移动到最近充电站，状态 → 充电中
+  //    - 充电站状态更新为"占用"
+  //    - AGV 位置移动到充电站位置
+  //    - targetChargingStation 字段记录占用的充电站 ID
   // 8. 充电中：每 100ms +0.2%，满 100% 转为空闲
+  //    - 释放充电站（状态 → 空闲）
+  //    - 清除 targetChargingStation
 }
 ```
 
@@ -202,6 +208,8 @@ task.progress = Math.round((agv.routeProgress || 0) * 100) / 100;
 | 2026-04-24 | 路径用名称匹配易冲突 | 改为用 ID 匹配 | ✅ |
 | 2026-04-24 | 任务状态与 AGV 不一致 | 创建时同步为"进行中" | ✅ |
 | 2026-04-24 | 进度小数位过多 | Math.round 保留 2 位小数 | ✅ |
+| 2026-04-27 | 低电量不回充电站 | 移动到最近充电站，充电站状态占用/释放 | ✅ |
+| 2026-04-27 | AGV 点击卡顿 | marker 复用缓存，避免每 100ms 重建 | ✅ |
 
 ---
 
