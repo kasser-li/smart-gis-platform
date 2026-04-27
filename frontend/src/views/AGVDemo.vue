@@ -469,11 +469,11 @@ const endPointIcon = L.divIcon({
 
 // AGV 车队数据
 const agvs = ref<any[]>([
-  { id: '001', status: '工作中', battery: 78, load: 150, maxLoad: 500, speed: 1.2, position: { lat: 39.9042, lng: 116.4074 }, currentTask: 'T001', currentRoute: 'R1', routeProgress: 45 },
-  { id: '002', status: '空闲', battery: 92, load: 0, maxLoad: 500, speed: 0, position: { lat: 39.9052, lng: 116.4084 }, currentTask: null, currentRoute: null, routeProgress: 0 },
-  { id: '003', status: '充电中', battery: 45, load: 0, maxLoad: 500, speed: 0, position: { lat: 39.9032, lng: 116.4064 }, currentTask: null, currentRoute: null, routeProgress: 0 },
-  { id: '004', status: '工作中', battery: 65, load: 280, maxLoad: 500, speed: 1.0, position: { lat: 39.9062, lng: 116.4094 }, currentTask: 'T002', currentRoute: 'R2', routeProgress: 72 },
-  { id: '005', status: '空闲', battery: 88, load: 0, maxLoad: 500, speed: 0, position: { lat: 39.9022, lng: 116.4054 }, currentTask: null, currentRoute: null, routeProgress: 0 },
+  { id: '001', status: '工作中', battery: 78, load: 150, maxLoad: 500, speed: 1.2, position: { lat: 39.9042, lng: 116.4074 }, currentTask: 'T001', currentRoute: 'R1', routeProgress: 45, targetChargingStation: null },
+  { id: '002', status: '空闲', battery: 92, load: 0, maxLoad: 500, speed: 0, position: { lat: 39.9052, lng: 116.4084 }, currentTask: null, currentRoute: null, routeProgress: 0, targetChargingStation: null },
+  { id: '003', status: '充电中', battery: 45, load: 0, maxLoad: 500, speed: 0, position: { lat: 39.9032, lng: 116.4064 }, currentTask: null, currentRoute: null, routeProgress: 0, targetChargingStation: 'C1' },
+  { id: '004', status: '工作中', battery: 65, load: 280, maxLoad: 500, speed: 1.0, position: { lat: 39.9062, lng: 116.4094 }, currentTask: 'T002', currentRoute: 'R2', routeProgress: 72, targetChargingStation: null },
+  { id: '005', status: '空闲', battery: 88, load: 0, maxLoad: 500, speed: 0, position: { lat: 39.9022, lng: 116.4054 }, currentTask: null, currentRoute: null, routeProgress: 0, targetChargingStation: null },
 ]);
 
 // 充电站数据
@@ -554,6 +554,9 @@ const pathLayerGroup = L.layerGroup();
 const agvLayerGroup = L.layerGroup();
 const waypointLayerGroup = L.layerGroup();
 const chargingLayerGroup = L.layerGroup();
+
+// AGV marker 引用缓存（避免频繁重建导致点击丢失）
+const agvMarkerMap = new Map<string, L.Marker>();
 
 // 计算属性
 const onlineCount = computed(() => agvs.value.filter(a => a.status !== '离线').length);
@@ -878,37 +881,63 @@ const formatLabel = (key: string) => {
   return labels[key] || key;
 };
 
-// 渲染 AGV
+// 查找最近的空闲充电站
+const findNearestChargingStation = (agv: any) => {
+  let nearest: any = null;
+  let minDist = Infinity;
+  chargingStations.value.forEach(cs => {
+    const dist = calculateDistance(agv.position, cs.position);
+    if (dist < minDist) {
+      minDist = dist;
+      nearest = cs;
+    }
+  });
+  return nearest;
+};
+
+// 渲染 AGV（复用 marker，避免频繁重建导致点击丢失）
 const renderAGVs = () => {
-  agvLayerGroup.clearLayers();
-  
   agvs.value.forEach(agv => {
-    const marker = L.marker([agv.position.lat, agv.position.lng], { icon: agvIcon });
-    
-    // 点击事件 - 显示详细信息面板
-    marker.on('click', () => {
-      selectedElement.value = {
-        title: `AGV-${agv.id} 详情`,
-        info: {
-          id: agv.id,
-          status: agv.status,
-          battery: agv.battery,
-          load: `${agv.load} kg / ${agv.maxLoad} kg`,
-          speed: `${agv.speed} m/s`,
-          position: agv.position,
-          currentRoute: agv.currentRoute || '无',
-          routeProgress: agv.routeProgress || 0,
-          currentTask: agv.currentTask || '空闲'
-        },
-        actions: [
-          { label: '🗺️ 分配路径', type: '', handler: () => assignRoute(agv) },
-          { label: '⏸️ 暂停', type: 'warning', handler: () => stopAGV(agv.id) },
-          { label: '🚨 急停', type: 'danger', handler: () => emergencyStop(agv.id) }
-        ]
-      };
-    });
-    
-    agvLayerGroup.addLayer(marker);
+    let marker = agvMarkerMap.get(agv.id);
+    if (!marker) {
+      marker = L.marker([agv.position.lat, agv.position.lng], { icon: agvIcon });
+      // 点击事件 - 显示详细信息面板
+      marker.on('click', () => {
+        selectedElement.value = {
+          title: `AGV-${agv.id} 详情`,
+          info: {
+            id: agv.id,
+            status: agv.status,
+            battery: agv.battery,
+            load: `${agv.load} kg / ${agv.maxLoad} kg`,
+            speed: `${agv.speed} m/s`,
+            position: agv.position,
+            currentRoute: agv.currentRoute || '无',
+            routeProgress: agv.routeProgress || 0,
+            currentTask: agv.currentTask || '空闲'
+          },
+          actions: [
+            { label: '🗺️ 分配路径', type: '', handler: () => assignRoute(agv) },
+            { label: '⏸️ 暂停', type: 'warning', handler: () => stopAGV(agv.id) },
+            { label: '🚨 急停', type: 'danger', handler: () => emergencyStop(agv.id) }
+          ]
+        };
+      });
+      agvLayerGroup.addLayer(marker);
+      agvMarkerMap.set(agv.id, marker);
+    } else {
+      // 复用已有 marker，仅更新位置
+      marker.setLatLng([agv.position.lat, agv.position.lng]);
+    }
+  });
+  
+  // 清理已删除的 AGV marker
+  const currentIds = new Set(agvs.value.map(a => a.id));
+  agvMarkerMap.forEach((marker, id) => {
+    if (!currentIds.has(id)) {
+      agvLayerGroup.removeLayer(marker);
+      agvMarkerMap.delete(id);
+    }
   });
 };
 
@@ -1002,7 +1031,8 @@ const addAGV = () => {
     position: { lat: 39.9045 + Math.random() * 0.01, lng: 116.4075 + Math.random() * 0.01 },
     currentTask: null,
     currentRoute: null,
-    routeProgress: 0
+    routeProgress: 0,
+    targetChargingStation: null
   });
   renderAGVs();
   ElMessage.success(`AGV-${newId} 已添加`);
@@ -1189,6 +1219,7 @@ const resetSimulation = () => {
     agv.currentTask = agv.status === '工作中' ? `T${String(index + 1).padStart(3, '0')}` : null;
     agv.currentRoute = agv.status === '工作中' ? `R${(index % 3) + 1}` : null;
     agv.routeProgress = agv.status === '工作中' ? Math.random() * 100 : 0;
+    agv.targetChargingStation = null;
   });
   
   // 重置任务
@@ -1255,6 +1286,13 @@ const simulateAGVMovement = () => {
           agv.status = '充电中';
           agv.currentRoute = null;
           agv.speed = 0;
+          // 移动到最近充电站
+          const nearestStation = findNearestChargingStation(agv);
+          if (nearestStation) {
+            agv.targetChargingStation = nearestStation.id;
+            agv.position = { ...nearestStation.position };
+            chargingStations.value.find(cs => cs.id === nearestStation.id) && (chargingStations.value.find(cs => cs.id === nearestStation.id)!.status = '占用');
+          }
           ElMessage.warning(`AGV-${agv.id} 电量低，自动前往充电`);
         }
       }
@@ -1263,6 +1301,12 @@ const simulateAGVMovement = () => {
       agv.battery = Math.round(Math.min(100, agv.battery + 0.2) * 100) / 100;
       if (agv.battery >= 100) {
         agv.status = '空闲';
+        // 释放充电站
+        if (agv.targetChargingStation) {
+          const station = chargingStations.value.find(cs => cs.id === agv.targetChargingStation);
+          if (station) station.status = '空闲';
+          agv.targetChargingStation = null;
+        }
         ElMessage.success(`AGV-${agv.id} 充电完成`);
       }
     }
